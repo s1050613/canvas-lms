@@ -133,6 +133,18 @@ $ic-DashboardCard-icon-color: $ic-icon-link-color;
   background: $ic-color-light;
 }
 
+.ic-DashboardCard__grades_label {
+  padding: 3px;
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: white;
+  border-radius: 5px;
+  backdrop-filter: blur(1.5px);
+  opacity: 0.35;
+  cursor: default;
+}
+
 @mixin dashcardHeaderButton {
   position: absolute;
   top: $ic-sp; #{direction(right)}: $ic-sp;

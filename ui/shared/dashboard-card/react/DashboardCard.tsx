@@ -71,6 +71,20 @@ export const DashboardCardHeaderHero = ({
   )
 }
 
+export type DashboardCardGradesLabelProps = {
+  courseCode: string
+};
+export const DashboardCardGradesLabel = ({
+  courseCode
+}: DashboardCardGradesLabelProps) => {
+  let grade: string = `${getGrade(courseCode)}%`; // TODO
+  return (
+    <div
+      className="ic-DashboardCard__grades_label"
+    >{grade}</div>
+  )
+};
+
 export type DashboardCardProps = {
   id: string
   backgroundColor?: string
@@ -336,6 +350,9 @@ export const DashboardCard = ({
             )}
           </div>
         </a>
+        <DashboardCardGradesLabel
+          courseCode={courseCode}
+        />
         {!published && canChangeCoursePublishState && (
           <PublishButton
             courseNickname={nicknameInfo.nickname}
