@@ -1927,6 +1927,10 @@ class User < ActiveRecord::Base
     !!feature_enabled?(:disable_keyboard_shortcuts)
   end
 
+  def prefers_no_grade_labels?
+    !!feature_enabled?(:hide_grade_labels)
+  end
+
   def manual_mark_as_read?
     !!preferences[:manual_mark_as_read]
   end

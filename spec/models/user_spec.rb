@@ -4177,6 +4177,19 @@ describe User do
     end
   end
 
+  describe "#prefers_no_grade_labels?" do
+    let(:user) { user_model }
+
+    it "returns false by default" do
+      expect(user.prefers_no_grade_labels?).to be false
+    end
+
+    it "returns true if user hides grade labels" do
+      user.enable_feature!(:hide_grade_labels)
+      expect(user.prefers_no_grade_labels?).to be true
+    end
+  end
+
   describe "with_last_login" do
     it "does not double the users select if select values are already present" do
       expect(User.all.order_by_sortable_name.with_last_login.to_sql.scan(".*").count).to eq 1

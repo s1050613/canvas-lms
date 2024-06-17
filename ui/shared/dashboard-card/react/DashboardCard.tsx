@@ -71,16 +71,16 @@ export const DashboardCardHeaderHero = ({
   )
 }
 
-export type DashboardCardGradesLabelProps = {
+export type DashboardCardGradeLabelProps = {
   courseCode: string
 };
-export const DashboardCardGradesLabel = ({
+export const DashboardCardGradeLabel = ({
   courseCode
-}: DashboardCardGradesLabelProps) => {
+}: DashboardCardGradeLabelProps) => {
   let grade: string = `${getGrade(courseCode)}%`; // TODO
   return (
     <div
-      className="ic-DashboardCard__grades_label"
+      className="ic-DashboardCard__grade_label"
     >{grade}</div>
   )
 };
@@ -350,9 +350,11 @@ export const DashboardCard = ({
             )}
           </div>
         </a>
-        <DashboardCardGradesLabel
-          courseCode={courseCode}
-        />
+        {!window.ENV.hide_grade_labels && ( // TODO: Check if course is graded; show nothing if not
+          <DashboardCardGradeLabel
+            courseCode={courseCode}
+          />
+        )}
         {!published && canChangeCoursePublishState && (
           <PublishButton
             courseNickname={nicknameInfo.nickname}

@@ -247,6 +247,7 @@ class ApplicationController < ActionController::Base
           auto_show_cc: @current_user&.auto_show_cc?,
           disable_celebrations: @current_user&.prefers_no_celebrations?,
           disable_keyboard_shortcuts: @current_user&.prefers_no_keyboard_shortcuts?,
+          hide_grade_labels: @current_user&.prefers_no_grade_labels?,
           LTI_LAUNCH_FRAME_ALLOWANCES: Lti::Launch.iframe_allowances,
           DEEP_LINKING_POST_MESSAGE_ORIGIN: request.base_url,
           comment_library_suggestions_enabled: @current_user&.comment_library_suggestions_enabled?,

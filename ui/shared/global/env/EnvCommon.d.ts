@@ -113,6 +113,7 @@ export interface EnvCommon {
   auto_show_cc: boolean
   disable_celebrations: boolean
   disable_keyboard_shortcuts: boolean
+  hide_grade_labels: boolean
   LTI_LAUNCH_FRAME_ALLOWANCES: string[]
   LTI_TOOL_SCOPES?: {[key: string]: string[]}
   DEEP_LINKING_POST_MESSAGE_ORIGIN: string

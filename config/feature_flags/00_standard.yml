@@ -71,6 +71,12 @@ disable_keyboard_shortcuts:
     Disable Canvas keyboard shortcuts. Some users using screenreaders or keyboard navigation
     will have an improved experience with these shortcuts turned off.
   applies_to: User
+hide_grade_labels:
+  type: setting
+  state: hidden
+  display_name: Hide Grade Labels
+  description: Hide the grade labels for graded courses on the Dashboard.
+  applies_to: User
 disable_lti_post_only:
   state: hidden
   display_name: Don't Move LTI Query Params to POST Body
