@@ -72,16 +72,15 @@ export const DashboardCardHeaderHero = ({
 }
 
 export type DashboardCardGradeLabelProps = {
-  courseCode: string
+  gradeString: string
 };
 export const DashboardCardGradeLabel = ({
-  courseCode
+  gradeString
 }: DashboardCardGradeLabelProps) => {
-  let grade: string = `${getGrade(courseCode)}%`; // TODO
   return (
     <div
       className="ic-DashboardCard__grade_label"
-    >{grade}</div>
+    >{gradeString}</div>
   )
 };
 
@@ -112,7 +111,8 @@ export type DashboardCardProps = {
   canChangeCoursePublishState?: boolean
   defaultView?: string
   pagesUrl?: string
-  frontPageTitle?: string
+  frontPageTitle?: string,
+  gradeString: string,
   onPublishedCourse?: (id: string) => void
 }
 
@@ -144,6 +144,7 @@ export const DashboardCard = ({
   defaultView,
   pagesUrl,
   frontPageTitle,
+  gradeString,
   onPublishedCourse = () => {},
 }: DashboardCardProps) => {
   const handleNicknameChange = nickname => setNicknameInfo(getNicknameInfo(nickname))
@@ -352,7 +353,7 @@ export const DashboardCard = ({
         </a>
         {!window.ENV.hide_grade_labels && ( // TODO: Check if course is graded; show nothing if not
           <DashboardCardGradeLabel
-            courseCode={courseCode}
+            gradeString={gradeString}
           />
         )}
         {!published && canChangeCoursePublishState && (
