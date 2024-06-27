@@ -144,7 +144,6 @@ export const DashboardCard = ({
   defaultView,
   pagesUrl,
   frontPageTitle,
-  gradeString,
   onPublishedCourse = () => {},
 }: DashboardCardProps) => {
   const handleNicknameChange = nickname => setNicknameInfo(getNicknameInfo(nickname))
@@ -351,9 +350,9 @@ export const DashboardCard = ({
             )}
           </div>
         </a>
-        {!window.ENV.hide_grade_labels && ( // TODO: Check if course is graded; show nothing if not
+        {!window.ENV.HIDE_GRADE_LABELS && ( // TODO: Check if course is graded; show nothing if not
           <DashboardCardGradeLabel
-            gradeString={gradeString}
+            gradeString={window.ENV.GRADES[id]}
           />
         )}
         {!published && canChangeCoursePublishState && (

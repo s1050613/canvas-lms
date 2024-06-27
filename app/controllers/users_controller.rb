@@ -563,7 +563,7 @@ class UsersController < ApplicationController
                hide_dashcard_color_overlays: @current_user.preferences[:hide_dashcard_color_overlays],
                custom_colors: @current_user.custom_colors
              },
-             hide_grade_labels: @current_user.hide_grade_labels
+             HIDE_GRADE_LABELS: @current_user.hide_grade_labels
              STUDENT_PLANNER_ENABLED: planner_enabled?,
              STUDENT_PLANNER_COURSES: planner_enabled? && map_courses_for_menu(@current_user.courses_with_primary_enrollment),
              STUDENT_PLANNER_GROUPS: planner_enabled? && map_groups_for_planner(@current_user.current_groups),
@@ -578,6 +578,16 @@ class UsersController < ApplicationController
                                  .tabs_available(@current_user, root_account: @domain_root_account)
                                  .any? { |t| t[:id] == UserProfile::TAB_OBSERVEES }
            })
+    
+    if @current_user.hide_grade_labels
+      student_grades = []
+      @presenter.student_enrollments.each do |course|
+        student_grades << [course.id, @presenter.grade(course:, user: @current_user, grades: @grades, grading_periods: @grading_periods)]
+      end
+      js_env({
+               GRADES: student_grades
+             })
+    end
 
     # prefetch dashboard cards with the right observer url param
     if @current_user.roles(@domain_root_account).include?("observer")
