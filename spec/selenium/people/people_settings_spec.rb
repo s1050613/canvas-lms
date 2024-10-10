@@ -18,6 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative "../common"
+require_relative "pages/course_people_modal"
 
 describe "course people" do
   include_context "in-process server selenium tests"
@@ -54,7 +55,7 @@ describe "course people" do
       keep_trying_until { driver.execute_script("return $('##{input_id}').data('token_input').selector.list.query.search") == text }
       wait_for_ajaximations
       elements = ffj(".autocomplete_menu:visible .list:last ul:last li").map do |e|
-        [e, (e.find_element(:tag_name, :b).text rescue e.text)]
+        [e, e.find_element(:tag_name, :b)&.text || e.text]
       end
       wait_for_ajaximations
       element = elements.detect { |e| e.last == text }
@@ -123,7 +124,7 @@ describe "course people" do
       # open dialog
       use_edit_sections_dialog(@student) do
         # choose section
-        select_from_auto_complete(section_name, "section_input")
+        CoursePeople.select_from_section_autocomplete(section_name)
       end
       # expect
       expect(f("#user_#{@student.id}")).to include_text(section_name)
@@ -161,7 +162,7 @@ describe "course people" do
       # open dialog
       use_edit_sections_dialog(@student) do
         # choose section
-        select_from_auto_complete(section_name, "section_input")
+        CoursePeople.select_from_section_autocomplete(section_name)
       end
       # expect
       expect(f("#user_#{@student.id}")).to include_text(section_name)

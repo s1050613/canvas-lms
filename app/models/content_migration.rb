@@ -136,7 +136,7 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def migration_settings
-    read_or_initialize_attribute(:migration_settings, {}.with_indifferent_access)
+    self["migration_settings"] ||= {}.with_indifferent_access
   end
 
   # this is needed by Attachment#clone_for, which is used to allow a ContentExport to be directly imported
@@ -155,8 +155,15 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def content_export
-    if persisted? && !association(:content_export).loaded? && source_course_id && Shard.shard_for(source_course_id) != shard
-      association(:content_export).target = Shard.shard_for(source_course_id).activate { ContentExport.where(content_migration_id: self).first }
+    if persisted? && !association(:content_export).loaded? && source_course_id
+      association(:content_export).target = Shard.shard_for(source_course_id).activate do
+        ContentExport.where(content_migration_id: self).first ||
+          # since reusing content_exports in multiple content_migrations breaks the nominal 1:1 association
+          # find the content_export by source_course_id and attachment_id instead
+          (attachment_id && ContentExport.where(context_type: "Course",
+                                                context_id: source_course_id,
+                                                attachment_id:).first)
+      end
     end
     super
   end
@@ -245,7 +252,7 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def migration_type
-    read_attribute(:migration_type) || migration_settings["migration_type"]
+    super || migration_settings["migration_type"]
   end
 
   def plugin_type
@@ -621,6 +628,9 @@ class ContentMigration < ActiveRecord::Base
         MasterCourses::FolderHelper.update_folder_names_and_states(context, source_export)
         context.copy_attachments_from_course(source_export.context, content_export: source_export, content_migration: self)
         MasterCourses::FolderHelper.recalculate_locked_folders(context)
+      elsif for_course_template?
+        data = JSON.parse(exported_attachment.open, max_nesting: 50)
+        data = prepare_data(data)
       else
         @exported_data_zip = download_exported_data
         @zip_file = Zip::File.open(@exported_data_zip.path)
@@ -668,7 +678,7 @@ class ContentMigration < ActiveRecord::Base
   alias_method :import_content_without_send_later, :import_content
 
   def import!(data)
-    return import_quizzes_next!(data) if cc_qti_migration? || quizzes_next_migration?
+    return import_quizzes_next!(data) if quizzes_next_import_process?
 
     Importers.content_importer_for(context_type)
              .import_content(
@@ -679,6 +689,10 @@ class ContentMigration < ActiveRecord::Base
              )
   end
 
+  def quizzes_next_import_process?
+    cc_qti_migration? || quizzes_next_migration?
+  end
+
   def cc_qti_migration?
     context.instance_of?(Course) &&
       NewQuizzesFeaturesHelper.common_cartridge_qti_new_quizzes_import_enabled?(context) &&
@@ -686,7 +700,7 @@ class ContentMigration < ActiveRecord::Base
   end
 
   def import_quizzes_next?
-    !!migration_settings[:import_quizzes_next]
+    !!Canvas::Plugin.value_to_boolean(migration_settings[:import_quizzes_next])
   end
 
   def quizzes_next_migration?
@@ -739,6 +753,10 @@ class ContentMigration < ActiveRecord::Base
 
   def for_course_copy?
     migration_type == "course_copy_importer" || for_master_course_import?
+  end
+
+  def for_course_template?
+    initiated_source == :course_template
   end
 
   def for_common_cartridge?
@@ -935,7 +953,7 @@ class ContentMigration < ActiveRecord::Base
   def progress
     return nil if workflow_state == "created"
 
-    mig_prog = read_attribute(:progress) || 0
+    mig_prog = super || 0
     if for_course_copy?
       # this is for a course copy so it needs to combine the progress of the export and import
       # The export will count for 40% of progress
@@ -971,8 +989,8 @@ class ContentMigration < ActiveRecord::Base
     @html_converter ||= CanvasImportedHtmlConverter.new(self)
   end
 
-  def convert_html(*args, **keyword_args)
-    html_converter.convert(*args, **keyword_args)
+  def convert_html(*, **keyword_args)
+    html_converter.convert(*, **keyword_args)
   end
 
   def convert_text(text)
@@ -1186,11 +1204,14 @@ class ContentMigration < ActiveRecord::Base
 
   MIGRATION_DATA_FIELDS = {
     "WikiPage" => %i[url current_lookup_id],
-    "Attachment" => %i[media_entry_id uuid]
+    "Attachment" => %i[media_entry_id]
   }.freeze
 
   def migration_data_fields_for(asset_type)
-    MIGRATION_DATA_FIELDS["Attachment"] << :uuid if context.root_account.feature_enabled?(:file_verifiers_for_quiz_links)
+    if asset_type == "Attachment" && context.root_account.feature_enabled?(:file_verifiers_for_quiz_links)
+      return MIGRATION_DATA_FIELDS[asset_type].clone << :uuid
+    end
+
     MIGRATION_DATA_FIELDS[asset_type] || []
   end
 
@@ -1347,7 +1368,8 @@ class ContentMigration < ActiveRecord::Base
       "source_host" => source_course&.root_account&.domain(ApplicationController.test_cluster_name),
       "source_course" => source_course_id&.to_s,
       "contains_migration_ids" => Account.site_admin.feature_enabled?(:content_migration_asset_map_v2),
-      "resource_mapping" => data
+      "resource_mapping" => data,
+      "migration_user_uuid" => user&.uuid
     }
 
     if asset_map_v2?
@@ -1375,8 +1397,8 @@ class ContentMigration < ActiveRecord::Base
     global_ids = master_template.present? || use_global_identifiers?
 
     migration_settings[:imported_assets].each do |asset_type, dest_ids|
-      klass = asset_type.constantize
-      next unless klass.column_names.include? "migration_id"
+      klass = asset_type.safe_constantize
+      next unless klass&.column_names&.include? "migration_id"
 
       dest_ids = dest_ids.split(",").map(&:to_i)
       mig_id_to_dest_id = context.shard.activate do

@@ -57,6 +57,7 @@ describe('DiscussionRow', () => {
             html_url: '',
             avatar_image_url: null,
           },
+          permissions: {},
           subscribed: false,
           read_state: 'unread',
           unread_count: 0,
@@ -87,6 +88,7 @@ describe('DiscussionRow', () => {
         DIRECT_SHARE_ENABLED: false,
         contextType: '',
         dateFormatter,
+        breakpoints: {mobileOnly: false},
       },
       props
     )
@@ -318,6 +320,66 @@ describe('DiscussionRow', () => {
     expect(screen.queryByText('To do', {exact: false})).not.toBeInTheDocument()
   })
 
+  it('renders checkpoint information', () => {
+    const props = makeProps({
+      discussion: {
+        reply_to_entry_required_count: 2,
+        assignment: {
+          checkpoints: [
+            {
+              tag: 'reply_to_topic',
+              points_possible: 20,
+              due_at: '2024-09-14T05:59:00Z',
+            },
+            {
+              tag: 'reply_to_entry',
+              points_possible: 10,
+              due_at: '2024-09-21T05:59:00Z',
+            },
+          ],
+        },
+      },
+    })
+    render(<DiscussionRow {...props} />)
+    expect(screen.queryByText('Reply to topic:', {exact: false})).toBeInTheDocument()
+    expect(screen.queryByText('Required replies (2):', {exact: false})).toBeInTheDocument()
+    expect(
+      screen.queryByText(props.dateFormatter('2024-09-14T05:59:00Z'), {exact: false})
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(props.dateFormatter('2024-09-21T05:59:00Z'), {exact: false})
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No Due Date', {exact: false})).not.toBeInTheDocument()
+  })
+
+  it('renders checkpoint information without due dates', () => {
+    const props = makeProps({
+      discussion: {
+        reply_to_entry_required_count: 4,
+        assignment: {
+          checkpoints: [
+            {
+              tag: 'reply_to_topic',
+              points_possible: 10,
+              due_at: null,
+            },
+            {
+              tag: 'reply_to_entry',
+              points_possible: 20,
+              due_at: null,
+            },
+          ],
+        },
+      },
+    })
+    render(<DiscussionRow {...props} />)
+    expect(
+      screen.queryByText('Reply to topic: No Due Date Required replies (4): No Due Date', {
+        exact: false,
+      })
+    ).toBeInTheDocument()
+  })
+
   it('renders to do date if ungraded with a to do date', () => {
     const props = makeProps({
       discussion: {
@@ -413,8 +475,8 @@ describe('DiscussionRow', () => {
     const ref = React.createRef()
     render(<DiscussionRow ref={ref} {...makeProps({masterCourseData})} />)
     expect(ref.current.masterCourseLock).toBeFalsy()
-    const container = screen.getByTestId('ic-master-course-icon-container')
-    expect(container.hasAttribute('data-tooltip')).toBe(false)
+    const container = screen.queryByTestId('ic-master-course-icon-container')
+    expect(container).not.toBeInTheDocument()
   })
 
   it('renders master course lock icon if masterCourseData is provided', () => {
@@ -674,6 +736,33 @@ describe('DiscussionRow', () => {
     const allKeys = list.querySelectorAll('li')
     expect(allKeys.length).toBe(1)
     expect(allKeys[0].textContent.includes('Close for comments')).toBe(true)
+  })
+
+  it('renders edit menu item if the user has update permission and discussion has html_url', async () => {
+    Object.defineProperty(window, 'location', {
+      value: {assign: jest.fn()},
+    })
+    render(
+      <DiscussionRow
+        {...makeProps({
+          displayManageMenu: true,
+          discussion: {
+            permissions: {update: true},
+            html_url: 'https://example.com',
+          },
+        })}
+      />
+    )
+
+    const list = await openManageMenu('Hello World')
+    const allKeys = list.querySelectorAll('li')
+    expect(allKeys.length).toBe(1)
+    expect(allKeys[0].textContent.includes('Edit')).toBe(true)
+
+    const edit = screen.getByText('Edit')
+    await user.click(edit)
+
+    expect(window.location.assign).toHaveBeenCalledWith('https://example.com/edit')
   })
 
   it('renders mastery paths menu item if permitted', async () => {

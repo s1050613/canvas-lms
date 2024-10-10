@@ -63,9 +63,9 @@ describe Api::V1::Course do
     let(:teacher_enrollment) { @course1.teacher_enrollments.first }
 
     it "supports optionally providing the url" do
-      expect(@test_api.course_json(@course1, @me, {}, ["html_url"], [])).to encompass({
-                                                                                        "html_url" => "course_url(Course.find(#{@course1.id}), :host => #{HostUrl.context_host(@course1)})"
-                                                                                      })
+      expect(@test_api.course_json(@course1, @me, {}, ["html_url"], [])).to include({
+                                                                                      "html_url" => "course_url(Course.find(#{@course1.id}), :host => #{HostUrl.context_host(@course1)})"
+                                                                                    })
       expect(@test_api.course_json(@course1, @me, {}, [], [])).to_not include "html_url"
     end
 
@@ -2177,6 +2177,20 @@ describe CoursesController, type: :request do
           expect(@course.workflow_state).to eql "completed"
         end
 
+        it "sets the grading standard id on concluding courses when inheriting a default scheme from the account level" do
+          expect(Auditors::Course).to receive(:record_concluded).once
+          gs = GradingStandard.new(context: @course.account, title: "My Grading Standard", data: { "A" => 0.94, "B" => 0, })
+          gs.save!
+          Account.site_admin.enable_feature!(:default_account_grading_scheme)
+          @course.update!(grading_standard_id: nil)
+          @course.root_account.update!(grading_standard_id: gs.id)
+          json = api_call(:delete, @path, @params, { event: "conclude" })
+          expect(json).to eq({ "conclude" => true })
+
+          @course.reload
+          expect(@course.grading_standard_id).to eql gs.id
+        end
+
         it "returns 400 if params[:event] is missing" do
           raw_api_call(:delete, @path, @params)
           expect(response).to have_http_status :bad_request
@@ -3149,7 +3163,7 @@ describe CoursesController, type: :request do
                         { state: ["available"] })
         expect(json.collect { |c| c["id"].to_i }.sort).to eq [@course1.id, @course2.id].sort
         json.pluck("workflow_state").each do |s|
-          expect(%w[available]).to include(s)
+          expect(s).to eql "available"
         end
       end
 
@@ -3160,7 +3174,7 @@ describe CoursesController, type: :request do
                         { state: ["unpublished"] })
         expect(json.collect { |c| c["id"].to_i }.sort).to eq [@course3.id, @course4.id].sort
         json.pluck("workflow_state").each do |s|
-          expect(%w[unpublished]).to include(s)
+          expect(s).to eql "unpublished"
         end
       end
 
@@ -3171,7 +3185,7 @@ describe CoursesController, type: :request do
                         { state: ["unpublished", "available"] })
         expect(json.collect { |c| c["id"].to_i }.sort).to eq [@course1.id, @course2.id, @course3.id, @course4.id].sort
         json.pluck("workflow_state").each do |s|
-          expect(%w[available unpublished]).to include(s)
+          expect(s).to be_in %w[available unpublished]
         end
       end
 
@@ -3188,7 +3202,7 @@ describe CoursesController, type: :request do
                                                 "enrollment_state" => "invited",
                                                 "limit_privileges_to_course_section" => false }]
         json.pluck("workflow_state").each do |s|
-          expect(%w[unpublished]).to include(s)
+          expect(s).to eql "unpublished"
         end
       end
 
@@ -4232,6 +4246,17 @@ describe CoursesController, type: :request do
       end
     end
 
+    it "returns the course syllabus without verifiers" do
+      should_translate_user_content(@course1, false) do |content|
+        @course1.syllabus_body = content
+        @course1.save!
+        json = api_call(:get,
+                        "/api/v1/courses.json?enrollment_type=teacher&include[]=syllabus_body",
+                        { controller: "courses", action: "index", format: "json", enrollment_type: "teacher", include: ["syllabus_body"], no_verifiers: true })
+        json[0]["syllabus_body"]
+      end
+    end
+
     describe "#show" do
       it "gets individual course data" do
         @course1.root_account.update(default_time_zone: "America/Los_Angeles")
@@ -4574,6 +4599,24 @@ describe CoursesController, type: :request do
                  { name: "failboat.txt" },
                  {},
                  expected_status: 401)
+      end
+
+      context "student in limited access account and has file creation permission" do
+        before do
+          @user = student_in_course(course: @course, active_all: true).user
+        end
+
+        it "should render unauthorized if account setting is enabled" do
+          @course.root_account.enable_feature!(:allow_limited_access_for_students)
+          @course.account.settings[:enable_limited_access_for_students] = true
+          @course.account.save!
+          api_call(:post,
+                   "/api/v1/courses/#{@course.id}/files",
+                   { controller: "courses", action: "create_file", format: "json", course_id: @course.to_param, },
+                   { name: "failboat.txt" },
+                   {},
+                   expected_status: 401)
+        end
       end
 
       it "creates the file in unlocked state if :usage_rights_required is disabled" do

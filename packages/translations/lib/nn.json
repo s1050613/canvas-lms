@@ -344,6 +344,9 @@
     "complex_numbers_a543d004": {
         "message": "Komplekse tal"
     },
+    "compose_44c904f4": {
+        "message": "Komponere"
+    },
     "computer_1d7dfa6f": {
         "message": "Datamaskin"
     },
@@ -370,6 +373,9 @@
     },
     "coproduct_e7838082": {
         "message": "Koprodukt"
+    },
+    "copy_9748f9f": {
+        "message": "Kopi"
     },
     "copyright_holder_66ee111": {
         "message": "Rettshavar:"
@@ -626,9 +632,6 @@
     "edit_link_7f53bebb": {
         "message": "Endre lenke"
     },
-    "editor_statusbar_26ac81fc": {
-        "message": "Statusrad editor"
-    },
     "element_starting_with_start_91bf4c3b": {
         "message": "Element som startar med { start }"
     },
@@ -736,6 +739,9 @@
     },
     "external_link_d3f9e62a": {
         "message": "Ekstern lenke"
+    },
+    "external_tool_frame_70b32473": {
+        "message": "Ekstern verktøyramme"
     },
     "external_tools_6e77821": {
         "message": "Eksterne verktøy"
@@ -1811,6 +1817,9 @@
     "result_index_of_max_7db5ad8b": {
         "message": "Resultat { index } av { max }."
     },
+    "retry_ebd5f8ba": {
+        "message": "Prøv på nytt"
+    },
     "rho_a0244a36": {
         "message": "Rho"
     },
@@ -1961,6 +1970,9 @@
     "shortcut_911d6255": {
         "message": "Snarveg"
     },
+    "show_all_967a90f0": {
+        "message": "Vis alt"
+    },
     "show_audio_options_b489926b": {
         "message": "Vis lydalternativ"
     },
@@ -1969,6 +1981,9 @@
     },
     "show_link_options_545338fd": {
         "message": "Vis lenkealternativ"
+    },
+    "show_studio_media_options_a0c748c6": {
+        "message": "Vis medievalg for studio"
     },
     "show_video_options_6ed3721a": {
         "message": "Vis videoalternativ"
@@ -2075,11 +2090,17 @@
     "steel_blue_14296f08": {
         "message": "Stålblå"
     },
+    "studio_media_options_ee504361": {
+        "message": "Medieval for studio"
+    },
     "styles_2aa721ef": {
         "message": "Stilar"
     },
     "submit_a3cc6859": {
         "message": "Send!"
+    },
+    "submitting_b90fac62": {
+        "message": "Leverer..."
     },
     "subscript_59744f96": {
         "message": "Senka skrift"
@@ -2299,6 +2320,9 @@
     },
     "up_c553575d": {
         "message": "Opp"
+    },
+    "updated_link_a827e441": {
+        "message": "Oppdatert lenke"
     },
     "upload_document_253f0478": {
         "message": "Last opp dokument frå disk"

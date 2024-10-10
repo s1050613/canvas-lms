@@ -68,7 +68,7 @@ describe('DashboardHeader', () => {
     })
 
     beforeEach(() => {
-      fetchMock.get(SHOW_K5_DASHBOARD_ROUTE, JSON.stringify(showK5DashboardResponse(false, false)))
+      fetchMock.get(SHOW_K5_DASHBOARD_ROUTE, showK5DashboardResponse(false, false))
     })
 
     afterEach(async () => {
@@ -90,6 +90,18 @@ describe('DashboardHeader', () => {
       await act(async () => getByText('Student 3').click())
       await findByText('Loading planner items')
       expect(loadPlannerSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not call loadCardDashboard if preloaded cards passed in', async () => {
+      window.ENV = {
+        ...defaultEnv,
+        FEATURES: {
+          dashboard_graphql_integration: true,
+        },
+      }
+      const loadCardDashboardSpy = jest.spyOn(DashboardHeader.prototype, 'loadCardDashboard')
+      render(<FakeDashboardHeader {...defaultProps} preloadedCards={[]} />)
+      expect(loadCardDashboardSpy).not.toHaveBeenCalled()
     })
   })
 })

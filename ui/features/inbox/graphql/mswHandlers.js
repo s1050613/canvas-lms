@@ -278,6 +278,7 @@ export const handlers = [
               submissionId: '3',
               createdAt: '2022-04-04T12:19:38-06:00',
               attempt: 0,
+              canReply: false,
               author: User.mock(),
               assignment: {
                 id: 'QXNzaWdubWVudC0x',
@@ -286,6 +287,7 @@ export const handlers = [
                 __typename: 'Assignment',
               },
               comment: 'my student comment',
+              htmlComment: '<p>my student comment</p>',
               course: Course.mock(),
               read: true,
               __typename: 'SubmissionComment',
@@ -322,6 +324,7 @@ export const handlers = [
                     submissionId: '3',
                     createdAt: '2022-04-04T12:19:38-06:00',
                     attempt: 0,
+                    canReply: false,
                     author: User.mock(),
                     assignment: {
                       id: 'QXNzaWdubWVudC0x',
@@ -330,6 +333,7 @@ export const handlers = [
                       __typename: 'Assignment',
                     },
                     comment: 'my student comment',
+                    htmlComment: '<p>my student comment</p>',
                     course: Course.mock(),
                     read: true,
                     __typename: 'SubmissionComment',
@@ -349,6 +353,7 @@ export const handlers = [
                     submissionId: '3',
                     createdAt: '2022-04-04T12:19:38-06:00',
                     attempt: 0,
+                    canReply: false,
                     author: User.mock(),
                     assignment: {
                       id: 'QXNzaWdubWVudC0x',
@@ -357,6 +362,7 @@ export const handlers = [
                       __typename: 'Assignment',
                     },
                     comment: 'my student comment',
+                    htmlComment: '<p>my student comment</p>',
                     course: Course.mock(),
                     read: true,
                     __typename: 'SubmissionComment',
@@ -750,7 +756,10 @@ export const handlers = [
     const SUBMISSION_ID_THAT_RETURNS_ERROR = '440'
     const data = {
       createSubmissionComment: {
-        submissionComment: SubmissionComment.mock({comment: variables.body}),
+        submissionComment: SubmissionComment.mock({
+          comment: variables.body,
+          htmlComment: variables.body,
+        }),
         errors: null,
         __typename: 'CreateSubmissionCommentPayload',
       },

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState} from 'react'
+import React, {useCallback, useState} from 'react'
 import useFetchApi from '@canvas/use-fetch-api-hook'
 import {IconButton} from '@instructure/ui-buttons'
 import {Tooltip} from '@instructure/ui-tooltip'
@@ -27,7 +27,7 @@ import {
 } from '@instructure/ui-icons'
 import {showFlashError} from '@canvas/alerts/react/FlashAlert'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import type {EnrollmentType, Role} from './types'
+import type {EnrollmentType, Role, TemporaryEnrollmentStatus} from './types'
 import {MODULE_NAME, PROVIDER, RECIPIENT, TOOLTIP_MAX_WIDTH} from './types'
 import {TempEnrollModal} from './TempEnrollModal'
 import {createAnalyticPropsGenerator} from './util/analytics'
@@ -90,23 +90,23 @@ interface Props {
   handleSubmitEditUserForm?: () => void
 }
 
-export interface TemporaryEnrollmentData {
-  is_provider: boolean
-  is_recipient: boolean
-}
-
 export default function TempEnrollUsersListRow(props: Props) {
   const [editMode, setEditMode] = useState(false)
-  const [isProvider, setIsProvider] = useState(false)
-  const [isRecipient, setIsRecipient] = useState(false)
+  const [status, setStatus] = useState<TemporaryEnrollmentStatus>({
+    is_provider: false,
+    is_recipient: false,
+    can_provide: false,
+  })
 
-  const tempEnrollPermissions = {
+  const setEnrollmentState = useCallback((json: TemporaryEnrollmentStatus) => setStatus(json), [])
+
+  const modifyPermissions = {
     canAdd: props.permissions.can_add_temporary_enrollments,
     canEdit: props.permissions.can_edit_temporary_enrollments,
     canDelete: props.permissions.can_delete_temporary_enrollments,
   }
 
-  const enrollPerm = {
+  const rolePermissions = {
     teacher: props.permissions.can_add_teacher,
     ta: props.permissions.can_add_ta,
     student: props.permissions.can_add_student,
@@ -119,8 +119,11 @@ export default function TempEnrollUsersListRow(props: Props) {
     {
       path: `/api/v1/users/${props.user.id}/temporary_enrollment_status`,
       ...(ENV.ACCOUNT_ID !== ENV.ROOT_ACCOUNT_ID && {params: {account_id: ENV.ACCOUNT_ID}}),
-      success: (json: TemporaryEnrollmentData) => setTemporaryEnrollmentState(json),
-      error: showFlashError(I18n.t('Failed to fetch temporary enrollment data')),
+      success: setEnrollmentState,
+      error: useCallback(
+        () => showFlashError(I18n.t('Failed to fetch temporary enrollment data')),
+        []
+      ),
     },
     [props.user.id]
   )
@@ -143,15 +146,16 @@ export default function TempEnrollUsersListRow(props: Props) {
         enrollmentType={enrollmentType}
         user={props.user}
         canReadSIS={props.permissions.can_read_sis}
-        permissions={enrollPerm}
+        modifyPermissions={modifyPermissions}
         roles={props.roles}
         isEditMode={editModeStatus}
         onToggleEditMode={toggleOrSetEditModeFunction}
-        tempEnrollPermissions={tempEnrollPermissions}
+        rolePermissions={rolePermissions}
       >
-        <Tooltip data-testid="user-list-row-tooltip" renderTip={tooltipJsx}>
+        <Tooltip renderTip={tooltipJsx}>
           <IconButton
             {...analyticProps(icon.type.displayName)}
+            data-testid="user-list-row-tooltip"
             withBorder={false}
             withBackground={false}
             size="small"
@@ -165,23 +169,18 @@ export default function TempEnrollUsersListRow(props: Props) {
     )
   }
 
-  function setTemporaryEnrollmentState(res: TemporaryEnrollmentData) {
-    setIsProvider(res.is_provider)
-    setIsRecipient(res.is_recipient)
-  }
-
   function toggleEditMode() {
     setEditMode(prev => !prev)
   }
 
   function renderTempEnrollIcon() {
-    if (!isProvider && !isRecipient) {
+    const {is_provider, is_recipient, can_provide} = status
+
+    if (!is_provider && !is_recipient && can_provide) {
       return renderTempEnrollModal(null, generateIcon(null), false, () => setEditMode(false))
-    }
-    if (isProvider && !isRecipient) {
+    } else if (is_provider && !is_recipient) {
       return renderTempEnrollModal(PROVIDER, generateIcon(PROVIDER), editMode, toggleEditMode)
-    }
-    if (!isProvider && isRecipient) {
+    } else if (!is_provider && is_recipient && can_provide) {
       return (
         <>
           {renderTempEnrollModal(RECIPIENT, generateIcon(RECIPIENT), editMode, toggleEditMode)}
@@ -189,8 +188,7 @@ export default function TempEnrollUsersListRow(props: Props) {
           {renderTempEnrollModal(null, generateIcon(null), false, () => setEditMode(false))}
         </>
       )
-    }
-    if (isProvider && isRecipient) {
+    } else if (is_provider && is_recipient) {
       return (
         <>
           {renderTempEnrollModal(RECIPIENT, generateIcon(RECIPIENT), editMode, toggleEditMode)}
@@ -198,9 +196,12 @@ export default function TempEnrollUsersListRow(props: Props) {
           {renderTempEnrollModal(PROVIDER, generateIcon(PROVIDER), editMode, toggleEditMode)}
         </>
       )
+    } else if (!is_provider && is_recipient && !can_provide) {
+      return renderTempEnrollModal(RECIPIENT, generateIcon(RECIPIENT), editMode, toggleEditMode)
+    } else {
+      // default return statement to ensure a value is always returned
+      return null
     }
-    // default return statement to ensure a value is always returned
-    return null
   }
   // ensure the component always returns a valid JSX element or null
   return renderTempEnrollIcon() || null

@@ -29,6 +29,7 @@ import ManageAppListButton from './ManageAppListButton'
 import splitAssetString from '@canvas/util/splitAssetString'
 import {Button} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
+import {Spinner} from '@instructure/ui-spinner'
 
 const I18n = useI18nScope('external_tools')
 
@@ -62,7 +63,7 @@ export default class AppList extends React.Component {
   }
 
   manageAppListButton = () => {
-    if (this.isAccountContext()) {
+    if (this.isAccountContext() && ENV.APP_CENTER?.can_set_token) {
       return (
         <ManageAppListButton onUpdateAccessToken={this.refreshAppList} extAppStore={extStore} />
       )
@@ -86,7 +87,13 @@ export default class AppList extends React.Component {
 
   apps = () => {
     if (store.getState().isLoading) {
-      return <div ref={this.loadingIndicator} className="loadingIndicator" data-testid="spinner" />
+      return (
+        <div ref={this.loadingIndicator} className="loadingIndicator" data-testid="spinner">
+          <View padding="x-small" textAlign="center" as="div" display="block">
+            <Spinner delay={300} size="x-small" renderTitle={() => I18n.t('Loading')} />
+          </View>
+        </div>
+      )
     } else {
       return store
         .filteredApps()

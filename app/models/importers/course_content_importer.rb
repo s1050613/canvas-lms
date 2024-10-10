@@ -189,16 +189,6 @@ module Importers
           Importers::BlueprintSettingsImporter.process_migration(data, migration)
         end
 
-        # be very explicit about draft state courses, but be liberal toward legacy courses
-        if course.wiki.has_no_front_page &&
-           migration.for_course_copy? &&
-           !migration.for_master_course_import? &&
-           (source = migration.source_course || Course.where(id: migration.migration_settings[:source_course_id]).first)
-          mig_id = migration.content_export.create_key(source.wiki.front_page)
-          if (new_front_page = course.wiki_pages.where(migration_id: mig_id).first)
-            course.wiki.set_front_page_url!(new_front_page.url)
-          end
-        end
         front_page = course.wiki.front_page
         course.wiki.unset_front_page! if front_page.nil? || front_page.new_record?
 
@@ -322,17 +312,19 @@ module Importers
       if (shift_options = migration.date_shift_options)
         shift_options = shift_date_options(course, shift_options)
 
-        Assignment.suspend_due_date_caching do
-          migration.imported_migration_items_by_class(Assignment).each do |event|
-            event.reload # just in case
-            event.due_at = shift_date(event.due_at, shift_options)
-            event.lock_at = shift_date(event.lock_at, shift_options)
-            event.unlock_at = shift_date(event.unlock_at, shift_options)
-            event.peer_reviews_due_at = shift_date(event.peer_reviews_due_at, shift_options)
-            event.needs_update_cached_due_dates = true if event.update_cached_due_dates?
-            event.save_without_broadcasting
-            if event.errors.any?
-              migration.add_warning(t("Couldn't adjust dates on assignment %{name} (ID %{id})", name: event.name, id: event.id.to_s))
+        unless Account.site_admin.feature_enabled?(:pre_date_shift_for_assignment_importing)
+          Assignment.suspend_due_date_caching do
+            migration.imported_migration_items_by_class(Assignment).each do |event|
+              event.reload # just in case
+              event.due_at = shift_date(event.due_at, shift_options)
+              event.lock_at = shift_date(event.lock_at, shift_options)
+              event.unlock_at = shift_date(event.unlock_at, shift_options)
+              event.peer_reviews_due_at = shift_date(event.peer_reviews_due_at, shift_options)
+              event.needs_update_cached_due_dates = true if event.update_cached_due_dates?
+              event.save_without_broadcasting
+              if event.errors.any?
+                migration.add_warning(t("Couldn't adjust dates on assignment %{name} (ID %{id})", name: event.name, id: event.id.to_s))
+              end
             end
           end
         end
@@ -370,18 +362,22 @@ module Importers
           event.save_without_broadcasting
         end
 
-        Assignment.suspend_due_date_caching do
-          migration.imported_migration_items_by_class(Quizzes::Quiz).each do |event|
-            event.reload # have to reload the quiz_data to keep link resolution - the others are just in case
-            event.due_at = shift_date(event.due_at, shift_options)
-            event.lock_at = shift_date(event.lock_at, shift_options)
-            event.unlock_at = shift_date(event.unlock_at, shift_options)
-            event.show_correct_answers_at = shift_date(event.show_correct_answers_at, shift_options)
-            event.hide_correct_answers_at = shift_date(event.hide_correct_answers_at, shift_options)
-            event.saved_by = :migration
-            event.save
+        unless Account.site_admin.feature_enabled?(:pre_date_shift_for_assignment_importing)
+          Assignment.suspend_due_date_caching do
+            migration.imported_migration_items_by_class(Quizzes::Quiz).each do |event|
+              event.reload # have to reload the quiz_data to keep link resolution - the others are just in case
+              event.due_at = shift_date(event.due_at, shift_options)
+              event.lock_at = shift_date(event.lock_at, shift_options)
+              event.unlock_at = shift_date(event.unlock_at, shift_options)
+              event.show_correct_answers_at = shift_date(event.show_correct_answers_at, shift_options)
+              event.hide_correct_answers_at = shift_date(event.hide_correct_answers_at, shift_options)
+              event.saved_by = :migration
+              event.save
+            end
           end
+        end
 
+        Assignment.suspend_due_date_caching do
           migration.imported_migration_items_by_class(AssignmentOverride).each do |event|
             AssignmentOverride.overridden_dates.each do |field|
               date = event.send(field)
@@ -402,6 +398,8 @@ module Importers
           event.reload
           event.todo_date = shift_date(event.todo_date, shift_options)
           event.publish_at = shift_date(event.publish_at, shift_options)
+          event.lock_at = shift_date(event.lock_at, shift_options)
+          event.unlock_at = shift_date(event.unlock_at, shift_options)
           event.save_without_broadcasting
         end
 
@@ -428,7 +426,7 @@ module Importers
     end
 
     def self.post_processing?(migration)
-      migration.quizzes_next_migration?
+      migration.quizzes_next_import_process?
     end
 
     def self.import_syllabus_from_migration(course, syllabus_body, migration)
@@ -635,6 +633,10 @@ module Importers
         new_time -= new_time.utc_offset
         new_time
       end
+    end
+
+    def self.error_on_dates?(item, attributes)
+      attributes.any? { |attribute| item.errors[attribute].present? }
     end
   end
 end

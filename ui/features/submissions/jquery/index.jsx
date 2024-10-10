@@ -34,6 +34,8 @@ import '@canvas/media-comments'
 import '@canvas/media-comments/jquery/mediaCommentThumbnail'
 import 'jquery-scroll-to-visible/jquery.scrollTo'
 import '@canvas/rubrics/jquery/rubric_assessment'
+import sanitizeHtml from 'sanitize-html-with-tinymce'
+import {containsHtmlTags, formatMessage} from '@canvas/util/TextHelper'
 
 const I18n = useI18nScope('submissions')
 /* global rubricAssessment */
@@ -253,6 +255,12 @@ export function setup() {
         document.getElementById('emoji-quick-picker-container')
       )
     }
+    const comments = document.getElementsByClassName("comment_content")
+    Array.from(comments).forEach((comment) => {
+      const content = comment.dataset.content
+      const formattedComment = containsHtmlTags(content) ? sanitizeHtml(content) : formatMessage(content)
+      comment.innerHTML = formattedComment
+    })
     $('.comments .comment_list .play_comment_link').mediaCommentThumbnail('small')
     $(window).bind('resize', windowResize).triggerHandler('resize')
     $('.comments_link').click(event => {

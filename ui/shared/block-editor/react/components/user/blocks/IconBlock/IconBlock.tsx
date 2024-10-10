@@ -17,19 +17,24 @@
  */
 
 import React, {useEffect, useState} from 'react'
-import {useNode} from '@craftjs/core'
-import {getIcon, IconAlarm, type IconSize} from '../../../../assets/icons'
+import {useNode, type Node} from '@craftjs/core'
+import {getIcon, IconAlarm} from '../../../../assets/user-icons'
 import {IconBlockToolbar} from './IconBlockToolbar'
+import {type IconBlockProps, type IconSize} from './types'
 
-export type IconBlockProps = {
-  iconName: string
-  size?: IconSize
-}
+import {useScope as useI18nScope} from '@canvas/i18n'
+
+const I18n = useI18nScope('block-editor/icon-block')
 
 const IconBlock = ({iconName, size}: IconBlockProps) => {
   const {
     connectors: {connect, drag},
-  } = useNode()
+    node,
+  } = useNode((n: Node) => {
+    return {
+      node: n,
+    }
+  })
   const [Icon, setIcon] = useState(() => {
     return getIcon(iconName) || IconAlarm
   })
@@ -38,17 +43,31 @@ const IconBlock = ({iconName, size}: IconBlockProps) => {
     setIcon(() => getIcon(iconName) || IconAlarm)
   }, [iconName])
 
-  return <Icon elementRef={el => el && connect(drag(el as HTMLElement))} size={size} />
+  return (
+    <div
+      role="treeitem"
+      aria-label={node.data.displayName}
+      aria-selected={node.events.selected}
+      className="block icon-block"
+      ref={el => el && connect(drag(el as HTMLElement))}
+      tabIndex={-1}
+    >
+      <Icon size={size} />
+    </div>
+  )
 }
 
 IconBlock.craft = {
-  displayName: 'Icon',
+  displayName: I18n.t('Icon'),
   defaultProps: {
     iconName: 'apple',
-    size: 'small',
+    size: 'small' as IconSize,
   },
   related: {
     toolbar: IconBlockToolbar,
+  },
+  custom: {
+    isBlock: true,
   },
 }
 

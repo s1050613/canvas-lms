@@ -20,32 +20,43 @@ import {debounce} from 'lodash'
 import React from 'react'
 import {AppsSearchBar} from './AppsSearchBar'
 
+import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import GenericErrorPage from '@canvas/generic-error-page/react'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import {confirmDanger} from '@canvas/instui-bindings/react/Confirm'
 import errorShipUrl from '@canvas/images/ErrorShip.svg'
+import {confirmDanger} from '@canvas/instui-bindings/react/Confirm'
 import {Flex} from '@instructure/ui-flex'
-import {Pagination} from '@instructure/ui-pagination'
 import {Spinner} from '@instructure/ui-spinner'
-import {
-  fetchRegistrations as apiFetchRegistrations,
-  deleteRegistration as apiDeleteRegistration,
-} from '../../api/registrations'
-import {AppsTable} from './AppsTable'
-import {MANAGE_APPS_PAGE_LIMIT, mkUseManagePageState} from './ManagePageLoadingState'
-import {type ManageSearchParams, useManageSearchParams} from './ManageSearchParams'
 import {formatSearchParamErrorMessages} from '../../../common/lib/useZodParams/ParamsParseResult'
+import {
+  deleteRegistration as apiDeleteRegistration,
+  fetchRegistrations as apiFetchRegistrations,
+} from '../../api/registrations'
+import {ZAccountId, type AccountId} from '../../model/AccountId'
 import type {LtiRegistration} from '../../model/LtiRegistration'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {AppsTable} from './AppsTable'
+import {mkUseManagePageState} from './ManagePageLoadingState'
+import {useManageSearchParams, type ManageSearchParams} from './ManageSearchParams'
+import {isSuccessful} from '../../../common/lib/apiResult/ApiResult'
+import {useAppendBreadcrumbsToDefaults} from '@canvas/breadcrumbs/useAppendBreadcrumbsToDefaults'
 
 const SEARCH_DEBOUNCE_MS = 250
 
 const I18n = useI18nScope('lti_registrations')
 
 export const ManagePage = () => {
+  const accountId = ZAccountId.parse(window.location.pathname.split('/')[2])
+  useAppendBreadcrumbsToDefaults(
+    {
+      name: I18n.t('Manage'),
+      url: `/accounts/${accountId}/apps/manage`,
+    },
+    !!window.ENV.FEATURES.lti_registrations_next
+  )
   const [searchParams] = useManageSearchParams()
+
   return searchParams.success ? (
-    <ManagePageInner searchParams={searchParams.value} />
+    <ManagePageInner searchParams={searchParams.value} accountId={accountId} />
   ) : (
     <GenericErrorPage
       imageUrl={errorShipUrl}
@@ -57,6 +68,7 @@ export const ManagePage = () => {
 }
 
 type ManagePageInnerProps = {
+  accountId: AccountId
   searchParams: ManageSearchParams
 }
 
@@ -77,7 +89,10 @@ export const ManagePageInner = (props: ManagePageInnerProps) => {
 
   const [, setManageSearchParams] = useManageSearchParams()
 
-  const [apps, {setStale, deleteRegistration}] = useManagePageState(props.searchParams)
+  const [apps, {setStale, deleteRegistration}] = useManagePageState({
+    ...props.searchParams,
+    accountId: props.accountId,
+  })
 
   /**
    * Holds the state of the search input field
@@ -100,11 +115,11 @@ export const ManagePageInner = (props: ManagePageInnerProps) => {
     async (app: LtiRegistration) => {
       if (await confirmDeletion(app)) {
         const deleteResult = await deleteRegistration(app)
-        const type = deleteResult._type === 'success' ? 'success' : 'error'
+        const type = isSuccessful(deleteResult) ? 'success' : 'error'
         showFlashAlert({
           type,
           message:
-            deleteResult._type === 'success'
+            deleteResult._type !== 'Success'
               ? I18n.t('There was an error deleting “%{appName}”', {appName: app.name})
               : I18n.t('App “%{appName}” successfully deleted', {appName: app.name}),
         })
@@ -148,7 +163,7 @@ export const ManagePageInner = (props: ManagePageInnerProps) => {
             <GenericErrorPage
               imageUrl={errorShipUrl}
               errorSubject={I18n.t('LTI Registrations listing error')}
-              error={apps.message}
+              errorMessage={apps.message}
             />
           )
         } else if ('items' in apps && typeof apps.items !== 'undefined') {
@@ -161,29 +176,8 @@ export const ManagePageInner = (props: ManagePageInnerProps) => {
                 dir={dir}
                 updateSearchParams={updateSearchParams}
                 deleteApp={deleteApp}
+                page={page}
               />
-              <Pagination
-                as="nav"
-                margin="small"
-                variant="compact"
-                labelNext={I18n.t('Next Page')}
-                labelPrev={I18n.t('Previous Page')}
-              >
-                {Array.from(Array(Math.ceil(apps.items.total / MANAGE_APPS_PAGE_LIMIT))).map(
-                  (_, i) => (
-                    <Pagination.Page
-                      // eslint-disable-next-line react/no-array-index-key
-                      key={i}
-                      current={i === page - 1}
-                      onClick={() => {
-                        setManageSearchParams({page: (i + 1).toString()})
-                      }}
-                    >
-                      {i + 1}
-                    </Pagination.Page>
-                  )
-                )}
-              </Pagination>
             </>
           )
         } else {

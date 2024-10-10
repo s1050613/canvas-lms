@@ -23,6 +23,7 @@ import {IconLtiLine} from '@instructure/ui-icons'
 import {Img} from '@instructure/ui-img'
 import {TruncateText} from '@instructure/ui-truncate-text'
 import {Flex} from '@instructure/ui-flex'
+import {Tooltip} from '@instructure/ui-tooltip'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import type {Tool} from '@canvas/global/env/EnvCommon'
 
@@ -33,11 +34,19 @@ type TopNavigationToolsProps = {
   handleToolLaunch: (tool: Tool) => void
 }
 
+export const handleToolIconError = (tool: Tool) => (event: any) => {
+  event.target.src = `/lti/tool_default_icon?name=${tool.title[0]}`
+  event.onerror = null
+}
+
 function getToolIcon(tool: Tool) {
   return (
-    (tool.icon_url && (
-      <Img src={tool.icon_url} height="1rem" alt={tool.title || 'Tool Icon'} />
-    )) || <IconLtiLine title={tool.title || 'Tool Icon'} />
+    <Img
+      src={tool.icon_url || ''}
+      height="1rem"
+      alt={tool.title}
+      onError={handleToolIconError(tool)}
+    />
   )
 }
 
@@ -53,26 +62,16 @@ export function TopNavigationTools(props: TopNavigationToolsProps) {
   const menu_tools = props.tools.filter(tool => !tool.pinned)
 
   return (
-    <Flex as="div" gap="small" width="100%" height="100%">
-      {pinned_tools.map((tool: Tool) => {
-        return (
-          <Flex.Item key={tool.id}>
-            <Button
-              renderIcon={getToolIcon(tool)}
-              onClick={e =>
-                handleToolClick(e.target.dataset.toolId, pinned_tools, props.handleToolLaunch)
-              }
-              data-tool-id={tool.id}
-              title={tool.title}
-            />
-          </Flex.Item>
-        )
-      })}
+    <Flex as="div" gap="small" width="100%" height="100%" direction="row-reverse">
       {menu_tools.length > 0 && (
         <Flex.Item>
           <Menu
             placement="bottom end"
-            trigger={<Button renderIcon={IconLtiLine} title={I18n.t('LTI Tools Menu')} />}
+            trigger={
+              <Tooltip renderTip={I18n.t('LTI Tools Menu')}>
+                <Button renderIcon={IconLtiLine} />
+              </Tooltip>
+            }
             key="menu"
             label={I18n.t('LTI Tools Menu')}
           >
@@ -94,6 +93,22 @@ export function TopNavigationTools(props: TopNavigationToolsProps) {
           </Menu>
         </Flex.Item>
       )}
+      {pinned_tools.map((tool: Tool) => {
+        return (
+          <Flex.Item key={tool.id}>
+            <Tooltip renderTip={tool.title}>
+              <IconButton
+                renderIcon={getToolIcon(tool)}
+                onClick={e =>
+                  handleToolClick(e.target.dataset.toolId, pinned_tools, props.handleToolLaunch)
+                }
+                data-tool-id={tool.id}
+                screenReaderLabel={tool.title}
+              />
+            </Tooltip>
+          </Flex.Item>
+        )
+      })}
     </Flex>
   )
 }

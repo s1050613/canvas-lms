@@ -23,11 +23,15 @@ module Lti
     DEFAULT_PRIVACY_LEVEL = "anonymous"
 
     belongs_to :developer_key
+    belongs_to :lti_registration, class_name: "Lti::Registration", inverse_of: :manual_configuration, optional: true
 
     before_save :normalize_configuration
     before_save :update_privacy_level_from_extensions
+    before_save :update_lti_registration
 
     after_update :update_external_tools!, if: :update_external_tools?
+
+    after_commit :update_unified_tool_id, if: :update_unified_tool_id?
 
     validates :developer_key_id, :settings, presence: true
     validates :developer_key_id, uniqueness: true
@@ -42,24 +46,6 @@ module Lti
     alias_attribute :configuration, :settings
     alias_method :configuration_url, :settings_url
     alias_method :configuration_url=, :settings_url=
-
-    def new_external_tool(context, existing_tool: nil)
-      # disabled tools should stay disabled while getting updated
-      # deleted tools are never updated during a dev key update so can be safely ignored
-      tool_is_disabled = existing_tool&.workflow_state == ContextExternalTool::DISABLED_STATE
-
-      tool = existing_tool || ContextExternalTool.new(context:)
-      Importers::ContextExternalToolImporter.import_from_migration(
-        importable_configuration,
-        context,
-        nil,
-        tool,
-        false
-      )
-      tool.developer_key = developer_key
-      tool.workflow_state = (tool_is_disabled && ContextExternalTool::DISABLED_STATE) || privacy_level || DEFAULT_PRIVACY_LEVEL
-      tool
-    end
 
     def self.create_tool_config_and_key!(account, tool_configuration_params)
       settings = if tool_configuration_params[:settings_url].present? && tool_configuration_params[:settings].blank?
@@ -94,15 +80,19 @@ module Lti
       end
     end
 
+    def extension_privacy_level
+      canvas_extensions["privacy_level"]
+    end
+
     # temporary measure since the actual privacy_level column is not fully backfilled
     # remove with INTEROP-8055
     def privacy_level
-      self[:privacy_level] || canvas_extensions["privacy_level"]
+      self[:privacy_level] || extension_privacy_level
     end
 
     def update_privacy_level_from_extensions
-      ext_privacy_level = canvas_extensions["privacy_level"]
-      if settings_changed? && self[:privacy_level] != ext_privacy_level && ext_privacy_level.present?
+      ext_privacy_level = extension_privacy_level
+      if (self[:privacy_level].nil? || settings_changed?) && self[:privacy_level] != ext_privacy_level && ext_privacy_level.present?
         self[:privacy_level] = ext_privacy_level
       end
     end
@@ -139,6 +129,25 @@ module Lti
       nil
     end
 
+    # @return [String[]] A list of warning messages for deprecated placements
+    def placement_warnings
+      warnings = []
+      if placements.any? { |placement| placement["placement"] == "resource_selection" }
+        warnings.push(
+          t(
+            "Warning: the resource_selection placement is deprecated. Please use assignment_selection and/or link_selection instead."
+          )
+        )
+      end
+      may_be_warning = verify_placements
+      warnings.push(may_be_warning) unless may_be_warning.nil?
+      warnings
+    end
+
+    def importable_configuration
+      configuration&.merge(canvas_extensions)&.merge(configuration_to_cet_settings_map)
+    end
+
     private
 
     def self.retrieve_and_extract_configuration(url)
@@ -168,22 +177,22 @@ module Lti
       developer_key.update_external_tools!
     end
 
+    def update_lti_registration
+      self.lti_registration_id = developer_key&.lti_registration_id if developer_key
+      true
+    end
+
     def validate_configuration
       if configuration["public_jwk"].blank? && configuration["public_jwk_url"].blank?
         errors.add(:lti_key, "tool configuration must have public jwk or public jwk url")
       end
       if configuration["public_jwk"].present?
-        jwk_schema_errors = Schemas::Lti::PublicJwk.simple_validation_errors(configuration["public_jwk"])
+        jwk_schema_errors = Schemas::Lti::PublicJwk.simple_validation_first_error(configuration["public_jwk"])
         errors.add(:configuration, jwk_schema_errors) if jwk_schema_errors.present?
       end
-      schema_errors = Schemas::Lti::ToolConfiguration.simple_validation_errors(configuration.compact)
+      schema_errors = Schemas::Lti::ToolConfiguration.simple_validation_first_error(configuration.compact)
       errors.add(:configuration, schema_errors) if schema_errors.present?
-      return false if errors[:configuration].present?
-
-      tool = new_external_tool(developer_key.owner_account)
-      unless tool.valid?
-        errors.add(:configuration, tool.errors.to_h.map { |k, v| "Tool #{k} #{v}" })
-      end
+      false if errors[:configuration].present?
     end
 
     def validate_placements
@@ -214,10 +223,6 @@ module Lti
       errors.add(:configuration, "oidc_initiation_urls must be valid urls")
     end
 
-    def importable_configuration
-      configuration&.merge(canvas_extensions)&.merge(configuration_to_cet_settings_map)
-    end
-
     def configuration_to_cet_settings_map
       { url: configuration["target_link_uri"], lti_version: "1.3" }
     end
@@ -239,6 +244,28 @@ module Lti
 
     def normalize_configuration
       self.configuration = JSON.parse(configuration) if configuration.is_a? String
+    end
+
+    def update_unified_tool_id
+      return unless developer_key.root_account.feature_enabled?(:update_unified_tool_id)
+
+      unified_tool_id = LearnPlatform::GlobalApi.get_unified_tool_id(**params_for_unified_tool_id)
+      update_column(:unified_tool_id, unified_tool_id) if unified_tool_id
+    end
+    handle_asynchronously :update_unified_tool_id, priority: Delayed::LOW_PRIORITY
+
+    def params_for_unified_tool_id
+      {
+        lti_name: settings["title"],
+        lti_tool_id: canvas_extensions["tool_id"],
+        lti_domain: canvas_extensions["domain"],
+        lti_version: "1.3",
+        lti_url: settings["target_link_uri"],
+      }
+    end
+
+    def update_unified_tool_id?
+      saved_change_to_settings?
     end
   end
 end

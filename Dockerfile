@@ -2,7 +2,7 @@
 # To update this file please edit the relevant template and run the generation
 # task `build/dockerfile_writer.rb --env development --compose-file docker-compose.yml,docker-compose.override.yml --in build/Dockerfile.template --out Dockerfile`
 
-ARG RUBY=3.1
+ARG RUBY=3.3
 
 FROM instructure/ruby-passenger:$RUBY
 LABEL maintainer="Instructure"
@@ -16,7 +16,7 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US.UTF-8
 ENV LC_CTYPE en_US.UTF-8
 ENV LC_ALL en_US.UTF-8
-ARG CANVAS_RAILS=7.0
+ARG CANVAS_RAILS=7.1
 ENV CANVAS_RAILS=${CANVAS_RAILS}
 
 ENV NODE_MAJOR 18

@@ -147,6 +147,22 @@ module CustomWaitMethods
     wait_for_animations(bridge)
   end
 
+  DIALOG_COUNT_SCRIPT = "return document.querySelectorAll('[role=dialog]').length"
+
+  # ensure InstUI React modals are properly closed
+  def wait_for_dialog_close(bridge = nil)
+    bridge = driver if bridge.nil?
+
+    if (count = bridge.execute_script(DIALOG_COUNT_SCRIPT)) > 1
+      raise SlowCodePerformance, "Multiple dialogs found: #{count}"
+    end
+
+    res = StatePoller.await(0) { bridge.execute_script(DIALOG_COUNT_SCRIPT) || 0 }
+    if res[:got] > 0
+      raise SlowCodePerformance, "Dialog did not close within #{res[:spent]}s: found #{res[:got]} dialogs"
+    end
+  end
+
   def wait_for_initializers(bridge = nil)
     bridge = driver if bridge.nil?
 
@@ -276,5 +292,15 @@ module CustomWaitMethods
     end
   rescue Selenium::WebDriver::Error::NoSuchElementError
     true
+  end
+
+  def wait_for_block_editor(parent_element = nil)
+    parent_element ||= f("#content")
+    keep_trying_until do
+      disable_implicit_wait { f(".block-editor-editor", parent_element) }
+    rescue => e
+      puts e.inspect
+      false
+    end
   end
 end

@@ -127,6 +127,7 @@ export type CamelizedSubmission = {
   url: null | string
   userId: string
   workflowState: WorkflowState
+  subAssignmentTag?: string
 }
 
 export type CamelizedGradingPeriod = {
@@ -185,6 +186,10 @@ export type CamelizedAssignment = {
   postManually: boolean
   published: boolean
   submissionTypes: string[]
+  checkpoints?: {
+    tag: string
+    points_possible: number
+  }[]
 }
 
 export const ZSubmissionOriginalityData = z
@@ -343,6 +348,7 @@ export type FormatGradeOptions = {
   restrict_quantitative_data?: boolean
   grading_scheme?: DeprecatedGradingScheme[]
   points_based_grading_scheme?: boolean
+  scaling_factor?: number
 }
 
 /**

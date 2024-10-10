@@ -21,29 +21,77 @@ import type React from 'react'
 import {useState, useCallback, useEffect} from 'react'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import type {FormMessage} from '@instructure/ui-form-field'
+import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 
 const I18n = useI18nScope('differentiated_modules')
 
 const fancyMidnightDueTime = '23:59:00'
 
 type UseDatesHookArgs = {
+  required_replies_due_at: string | null
+  reply_to_topic_due_at: string | null
   due_at: string | null
   unlock_at: string | null
   lock_at: string | null
   cardId: string
   onCardDatesChange?: (cardId: string, dateAttribute: string, dateValue: string | null) => void
 }
+type Override = {
+  id: string
+  assignment_id: string
+  title: string
+  due_at: string | null
+  all_day: boolean
+  all_day_date: string | null
+  unlock_at: string
+  lock_at: string
+  unassign_item: boolean
+  student_ids: string[]
+  students: Student[]
+  sub_assignment_due_dates: SubAssignmentDueDate[]
+}
+
+type SubAssignmentDueDate = {
+  sub_assignment_tag: string
+  due_at: string | null
+}
+
+type Student = {
+  id: string
+  name: string
+}
 
 type UseDatesHookResult = [
+  // requiredRepliesDueDate
   string | null,
+  // setRequiredRepliesDueDate
+  (requiredRepliesDueDate: string | null) => void,
+  // handleRequiredRepliesDueDateChange
+  (timeValue: String) => (_event: React.SyntheticEvent, value: string | undefined) => void,
+  // replyToTopicDueDate
+  string | null,
+  // setReplyToTopicDueDate
+  (replyToTopicDueDate: string | null) => void,
+  // handleReplyToTopicDueDateChange
+  (timeValue: String) => (_event: React.SyntheticEvent, value: string | undefined) => void,
+  // dueDate
+  string | null,
+  // setDueDate
   (dueDate: string | null) => void,
-  (_event: React.SyntheticEvent, value: string | undefined) => void,
+  // handleDueDateChange
+  (timeValue: String) => (_event: React.SyntheticEvent, value: string | undefined) => void,
+  // availableFromDate
   string | null,
+  // setAvailableFromDate
   (availableFromDate: string | null) => void,
-  (_event: React.SyntheticEvent, value: string | undefined) => void,
+  // handleAvailableFromDateChange
+  (timeValue: String) => (_event: React.SyntheticEvent, value: string | undefined) => void,
+  // availableToDate
   string | null,
+  // setAvailableToDate
   (availableToDate: string | null) => void,
-  (_event: React.SyntheticEvent, value: string | undefined) => void
+  // handleAvailableToDateChange
+  (timeValue: String) => (_event: React.SyntheticEvent, value: string | undefined) => void
 ]
 
 function setTimeToStringDate(time: string, date: string | undefined): string | undefined {
@@ -110,15 +158,33 @@ export function generateWrapperStyleProps(
 }
 
 export function useDates({
+  required_replies_due_at,
+  reply_to_topic_due_at,
   due_at,
   unlock_at,
   lock_at,
   cardId,
   onCardDatesChange,
 }: UseDatesHookArgs): UseDatesHookResult {
+  const [requiredRepliesDueDate, setRequiredRepliesDueDate] = useState<string | null>(
+    required_replies_due_at
+  )
+  const [replyToTopicDueDate, setReplyToTopicDueDate] = useState<string | null>(
+    reply_to_topic_due_at
+  )
   const [dueDate, setDueDate] = useState<string | null>(due_at)
   const [availableFromDate, setAvailableFromDate] = useState<string | null>(unlock_at)
   const [availableToDate, setAvailableToDate] = useState<string | null>(lock_at)
+
+  useEffect(() => {
+    onCardDatesChange?.(cardId, 'required_replies_due_at', requiredRepliesDueDate)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requiredRepliesDueDate])
+
+  useEffect(() => {
+    onCardDatesChange?.(cardId, 'reply_to_topic_due_at', replyToTopicDueDate)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyToTopicDueDate])
 
   useEffect(() => {
     onCardDatesChange?.(cardId, 'due_at', dueDate)
@@ -134,6 +200,42 @@ export function useDates({
     onCardDatesChange?.(cardId, 'lock_at', availableToDate)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableToDate])
+
+  const handleRequiredRepliesDueDateChange = useCallback(
+    (timeValue: String) => (_event: React.SyntheticEvent, value: string | undefined) => {
+      const defaultRequiredRepliesDueDate = ENV.DEFAULT_DUE_TIME ?? '23:59:00'
+      const newRequiredRepliesDueDate = requiredRepliesDueDate
+        ? value
+        : timeValue === ''
+        ? setTimeToStringDate(defaultRequiredRepliesDueDate, value)
+        : value
+      // When user uses calendar pop-up type is "click", but for KB is "blur"
+      if (_event.type !== 'blur') {
+        setRequiredRepliesDueDate(newRequiredRepliesDueDate || null)
+      } else {
+        setTimeout(() => setRequiredRepliesDueDate(newRequiredRepliesDueDate || null), 0)
+      }
+    },
+    [requiredRepliesDueDate]
+  )
+
+  const handleReplyToTopicDueDateChange = useCallback(
+    (timeValue: String) => (_event: React.SyntheticEvent, value: string | undefined) => {
+      const defaultReplyToTopicDueDate = ENV.DEFAULT_DUE_TIME ?? '23:59:00'
+      const newReplyToTopicDueDate = replyToTopicDueDate
+        ? value
+        : timeValue === ''
+        ? setTimeToStringDate(defaultReplyToTopicDueDate, value)
+        : value
+      // When user uses calendar pop-up type is "click", but for KB is "blur"
+      if (_event.type !== 'blur') {
+        setReplyToTopicDueDate(newReplyToTopicDueDate || null)
+      } else {
+        setTimeout(() => setReplyToTopicDueDate(newReplyToTopicDueDate || null), 0)
+      }
+    },
+    [replyToTopicDueDate]
+  )
 
   const handleDueDateChange = useCallback(
     (timeValue: String) => (_event: React.SyntheticEvent, value: string | undefined) => {
@@ -151,10 +253,15 @@ export function useDates({
       }
 
       if (isFancyMidnightNeeded(newDueDate)) {
-        setTimeout(
-          () => setDueDate(setTimeToStringDate(fancyMidnightDueTime, newDueDate) || null),
-          200
-        )
+        showFlashAlert({
+          message: I18n.t('Due date was automatically changed to 11:59 PM'),
+          type: 'info',
+          srOnly: true,
+          politeness: 'polite',
+        })
+        setTimeout(() => {
+          setDueDate(setTimeToStringDate(fancyMidnightDueTime, newDueDate) || null)
+        }, 200)
       }
     },
     [dueDate]
@@ -195,6 +302,12 @@ export function useDates({
   )
 
   return [
+    requiredRepliesDueDate,
+    setRequiredRepliesDueDate,
+    handleRequiredRepliesDueDateChange,
+    replyToTopicDueDate,
+    setReplyToTopicDueDate,
+    handleReplyToTopicDueDateChange,
     dueDate,
     setDueDate,
     handleDueDateChange,
@@ -221,6 +334,8 @@ export const generateCardActionLabels = (selected: string[]) => {
       return {
         removeCard: I18n.t('Remove card'),
         clearDueAt: I18n.t('Clear due date/time'),
+        clearReplyToTopicDueAt: I18n.t('Clear reply to topic due date/time'),
+        clearRequiredRepliesDueAt: I18n.t('Clear required replies due date/time'),
         clearAvailableFrom: I18n.t('Clear available from date/time'),
         clearAvailableTo: I18n.t('Clear until date/time'),
       }
@@ -229,6 +344,12 @@ export const generateCardActionLabels = (selected: string[]) => {
       return {
         removeCard: I18n.t('Remove card for %{pillA}', {pillA: selected[0]}),
         clearDueAt: I18n.t('Clear due date/time for %{pillA}', {pillA: selected[0]}),
+        clearReplyToTopicDueAt: I18n.t('Clear reply to topic due date/time for %{pillA}', {
+          pillA: selected[0],
+        }),
+        clearRequiredRepliesDueAt: I18n.t('Clear required replies due date/time for %{pillA}', {
+          pillA: selected[0],
+        }),
         clearAvailableFrom: I18n.t('Clear available from date/time for %{pillA}', {
           pillA: selected[0],
         }),
@@ -244,6 +365,20 @@ export const generateCardActionLabels = (selected: string[]) => {
           pillA: selected[0],
           pillB: selected[1],
         }),
+        clearReplyToTopicDueAt: I18n.t(
+          'Clear reply to topic due date/time for %{pillA} and %{pillB}',
+          {
+            pillA: selected[0],
+            pillB: selected[1],
+          }
+        ),
+        clearRequiredRepliesDueAt: I18n.t(
+          'Clear required replies due date/time for %{pillA} and %{pillB}',
+          {
+            pillA: selected[0],
+            pillB: selected[1],
+          }
+        ),
         clearAvailableFrom: I18n.t('Clear available from date/time for %{pillA} and %{pillB}', {
           pillA: selected[0],
           pillB: selected[1],
@@ -265,6 +400,22 @@ export const generateCardActionLabels = (selected: string[]) => {
           pillB: selected[1],
           pillC: selected[2],
         }),
+        clearReplyToTopicDueAt: I18n.t(
+          'Clear reply to topic due date/time for %{pillA}, %{pillB}, and %{pillC}',
+          {
+            pillA: selected[0],
+            pillB: selected[1],
+            pillC: selected[2],
+          }
+        ),
+        clearRequiredRepliesDueAt: I18n.t(
+          'Clear required replies due date/time for %{pillA}, %{pillB}, and %{pillC}',
+          {
+            pillA: selected[0],
+            pillB: selected[1],
+            pillC: selected[2],
+          }
+        ),
         clearAvailableFrom: I18n.t(
           'Clear available from date/time for %{pillA}, %{pillB}, and %{pillC}',
           {pillA: selected[0], pillB: selected[1], pillC: selected[2]}
@@ -287,6 +438,22 @@ export const generateCardActionLabels = (selected: string[]) => {
           pillB: selected[1],
           n: selected.length - 2,
         }),
+        clearReplyToTopicDueAt: I18n.t(
+          'Clear reply to topic due date/time for %{pillA}, %{pillB}, and %{n} others',
+          {
+            pillA: selected[0],
+            pillB: selected[1],
+            n: selected.length - 2,
+          }
+        ),
+        clearRequiredRepliesDueAt: I18n.t(
+          'Clear required replies due date/time for %{pillA}, %{pillB}, and %{n} others',
+          {
+            pillA: selected[0],
+            pillB: selected[1],
+            n: selected.length - 2,
+          }
+        ),
         clearAvailableFrom: I18n.t(
           'Clear available from date/time for %{pillA}, %{pillB}, and %{n} others',
           {pillA: selected[0], pillB: selected[1], n: selected.length - 2}
@@ -298,4 +465,11 @@ export const generateCardActionLabels = (selected: string[]) => {
         }),
       }
   }
+}
+
+export const getDueAtForCheckpointTag = (override: Override, checkpointTag: String) => {
+  return override.sub_assignment_due_dates
+    ? override.sub_assignment_due_dates.find(item => item.sub_assignment_tag === checkpointTag)
+        ?.due_at || null
+    : null
 }

@@ -120,7 +120,7 @@ export const useShouldShowContent = (
   const shouldShowPartialAnonymousSelector =
     !isEditing && discussionAnonymousState === 'partial_anonymity' && isStudent
 
-  const shouldShowAvailabilityOptions = !isAnnouncement && !isGroupContext
+  const shouldShowAvailabilityOptions = !isGroupContext
 
   /* discussion moderators viewing a new or still unpublished discussion */
   const shouldShowSaveAndPublishButton =
@@ -129,7 +129,7 @@ export const useShouldShowContent = (
   const shouldShowPodcastFeedOption =
     ENV.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_MODERATE && !ENV.K5_HOMEROOM_COURSE
 
-  const shouldShowCheckpointsOptions = isGraded && ENV.DISCUSSION_CHECKPOINTS_ENABLED
+  const shouldShowCheckpointsOptions = isGraded && ENV.DISCUSSION_CHECKPOINTS_ENABLED && !ENV.RESTRICT_QUANTITATIVE_DATA
 
   const canCreateGradedDiscussion =
     !isEditing && ENV?.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_CREATE_ASSIGNMENT
@@ -141,6 +141,9 @@ export const useShouldShowContent = (
     !isGraded &&
     ENV.FEATURES?.selective_release_ui_api &&
     ENV.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_MANAGE_ASSIGN_TO_UNGRADED
+
+  const shouldShowAllowParticipantsToCommentOption =
+    !ENV?.ANNOUNCEMENTS_COMMENTS_DISABLED && shouldShowAnnouncementOnlyOptions
 
   return {
     shouldShowTodoSettings,
@@ -157,5 +160,6 @@ export const useShouldShowContent = (
     shouldShowPodcastFeedOption,
     shouldShowCheckpointsOptions,
     shouldShowAssignToForUngradedDiscussions,
+    shouldShowAllowParticipantsToCommentOption,
   }
 }

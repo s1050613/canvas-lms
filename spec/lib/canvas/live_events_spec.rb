@@ -68,7 +68,6 @@ describe Canvas::LiveEvents do
         @data["body"]
       end
     end.new
-    allow(LiveEvents).to receive(:get_context).and_return({ compact_live_events: true })
   end
 
   let(:course_context) do
@@ -103,7 +102,6 @@ describe Canvas::LiveEvents do
           root_account_id:,
           root_account_uuid: root_account_uuid.to_s,
           root_account_lti_guid: root_account_lti_guid.to_s,
-          compact_live_events: true
         }
       )
     end
@@ -116,7 +114,6 @@ describe Canvas::LiveEvents do
                                       context_account_id: nil,
                                       context_id: user.global_id,
                                       context_type: "User",
-                                      compact_live_events: true
                                     })
     end
   end
@@ -301,7 +298,7 @@ describe Canvas::LiveEvents do
                    hash_including(
                      conversation_id: @convo.id.to_s
                    ),
-                   { compact_live_events: true }).once
+                   {}).once
       Canvas::LiveEvents.conversation_forwarded(@convo)
     end
   end
@@ -838,7 +835,7 @@ describe Canvas::LiveEvents do
                      role: "role",
                      level: "participation"
                    }.compact!,
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(@course, "category", "role", "participation")
     end
@@ -856,7 +853,7 @@ describe Canvas::LiveEvents do
                      role: "role",
                      level: "participation"
                    },
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(["assignments", @course], "category", "role", "participation")
     end
@@ -874,7 +871,7 @@ describe Canvas::LiveEvents do
                      role: "role",
                      level: "participation"
                    },
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(@page, "category", "role", "participation")
     end
@@ -894,14 +891,14 @@ describe Canvas::LiveEvents do
                      filename: @attachment.filename,
                      display_name: @attachment.display_name
                    }.compact!,
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(@attachment, "files", "role", "participation")
     end
 
     it "provides a different context if a different context is provided" do
       attachment_model
-      context = OpenStruct.new(global_id: "1")
+      context = instance_double("Course", global_id: "1", account: nil)
 
       expect_event("asset_accessed",
                    {
@@ -916,7 +913,6 @@ describe Canvas::LiveEvents do
                      display_name: @attachment.display_name
                    }.compact!,
                    {
-                     compact_live_events: true,
                      context_account_id: context.account&.global_id&.to_s,
                      context_type: context.class.to_s,
                      context_id: "1"
@@ -940,7 +936,7 @@ describe Canvas::LiveEvents do
                      enrollment_id: @enrollment.id.to_s,
                      section_id: @enrollment.course_section_id.to_s
                    },
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(["assignments", @course],
                                       "category",
@@ -1433,7 +1429,8 @@ describe Canvas::LiveEvents do
       ContentMigration.create(context: course,
                               source_course:,
                               migration_type: "some_type",
-                              workflow_state: "imported")
+                              workflow_state: "imported",
+                              user: @user)
     end
 
     before do
@@ -1883,7 +1880,26 @@ describe Canvas::LiveEvents do
       end
     end
 
-    context "#rubric_assessment_learning_outcome_result_associated_asset" do
+    describe "#learning_outcome_result_artifact_updated_and_created_at_data" do
+      it "returns the updated_at and created_at data for the artifact" do
+        expect(
+          Canvas::LiveEvents.learning_outcome_result_artifact_updated_and_created_at_data(result)
+        ).to eq(
+          {
+            artifact_created_at: result.artifact.created_at,
+            artifact_updated_at: result.artifact.updated_at
+          }
+        )
+      end
+
+      it "returns empty set if the artifact is nil" do
+        result.update!(artifact: nil)
+        result.reload
+        expect(Canvas::LiveEvents.learning_outcome_result_artifact_updated_and_created_at_data(result)).to eq({})
+      end
+    end
+
+    describe "#rubric_assessment_learning_outcome_result_associated_asset" do
       it "updates associated_asset info to the assignment if the artifact is a RubricAssessment" do
         assignment_model
         course_with_student
@@ -1915,10 +1931,78 @@ describe Canvas::LiveEvents do
           associated_asset_id: result.associated_asset_id.to_s,
           associated_asset_type: result.associated_asset_type,
           artifact_id: result.artifact_id.to_s,
-          artifact_type: result.artifact_type
+          artifact_type: result.artifact_type,
+          artifact_created_at: result.artifact.created_at,
+          artifact_updated_at: result.artifact.updated_at
         }.compact!).once
 
         Canvas::LiveEvents.learning_outcome_result_created(result)
+      end
+    end
+
+    context "artifact is not associated with learning outcome result" do
+      before do
+        result.update!(artifact: nil)
+        result.reload
+      end
+
+      it "artifact_id and artifact_type are nil in created live event" do
+        expect_event("learning_outcome_result_created", {
+          id: result.id.to_s,
+          learning_outcome_id: result.learning_outcome_id.to_s,
+          learning_outcome_context_uuid: result.learning_outcome.context&.uuid,
+          result_context_id: result.context_id.to_s,
+          result_context_type: result.context_type,
+          result_context_uuid: result&.context&.uuid,
+          mastery: result.mastery,
+          score: result.score,
+          created_at: result.created_at,
+          attempt: result.attempt,
+          possible: result.possible,
+          original_score: result.original_score,
+          original_possible: result.original_possible,
+          original_mastery: result.original_mastery,
+          assessed_at: result.assessed_at,
+          percent: result.percent,
+          workflow_state: result.workflow_state,
+          user_uuid: result.user_uuid,
+          associated_asset_id: result.associated_asset_id.to_s,
+          associated_asset_type: result.associated_asset_type,
+          artifact_id: nil,
+          artifact_type: nil
+        }.compact!).once
+
+        Canvas::LiveEvents.learning_outcome_result_created(result)
+      end
+
+      it "artifact_id and artifact_type are nil in updated live event" do
+        expect_event("learning_outcome_result_updated", {
+          id: result.id.to_s,
+          learning_outcome_id: result.learning_outcome_id.to_s,
+          learning_outcome_context_uuid: result.learning_outcome.context&.uuid,
+          result_context_id: result.context_id.to_s,
+          result_context_type: result.context_type,
+          result_context_uuid: result&.context&.uuid,
+          mastery: result.mastery,
+          score: result.score,
+          created_at: result.created_at,
+          updated_at: result.updated_at,
+          attempt: result.attempt,
+          possible: result.possible,
+          original_score: result.original_score,
+          original_possible: result.original_possible,
+          original_mastery: result.original_mastery,
+          assessed_at: result.assessed_at,
+          percent: result.percent,
+          workflow_state: result.workflow_state,
+          user_uuid: result.user_uuid,
+          associated_asset_id: result.associated_asset_id.to_s,
+          associated_asset_type: result.associated_asset_type,
+          artifact_id: nil,
+          artifact_type: nil
+        }.compact!).once
+
+        Canvas::LiveEvents.learning_outcome_result_updated(result)
       end
     end
 
@@ -1946,7 +2030,9 @@ describe Canvas::LiveEvents do
           associated_asset_id: result.associated_asset_id.to_s,
           associated_asset_type: result.associated_asset_type,
           artifact_id: result.artifact_id.to_s,
-          artifact_type: result.artifact_type
+          artifact_type: result.artifact_type,
+          artifact_created_at: result.artifact.created_at,
+          artifact_updated_at: result.artifact.updated_at
         }.compact!).once
 
         Canvas::LiveEvents.learning_outcome_result_created(result)
@@ -1976,7 +2062,9 @@ describe Canvas::LiveEvents do
           associated_asset_id: result.associated_asset_id.to_s,
           associated_asset_type: result.associated_asset_type,
           artifact_id: result.artifact_id.to_s,
-          artifact_type: result.artifact_type
+          artifact_type: result.artifact_type,
+          artifact_created_at: result.artifact.created_at,
+          artifact_updated_at: result.artifact.updated_at
         }.compact!).once
 
         Canvas::LiveEvents.learning_outcome_result_created(result)
@@ -2011,7 +2099,9 @@ describe Canvas::LiveEvents do
           associated_asset_id: result.associated_asset_id.to_s,
           associated_asset_type: result.associated_asset_type,
           artifact_id: result.artifact_id.to_s,
-          artifact_type: result.artifact_type
+          artifact_type: result.artifact_type,
+          artifact_created_at: result.artifact.created_at,
+          artifact_updated_at: result.artifact.updated_at
         }.compact!).once
 
         Canvas::LiveEvents.learning_outcome_result_created(result)
@@ -2045,7 +2135,9 @@ describe Canvas::LiveEvents do
           associated_asset_id: result.associated_asset_id.to_s,
           associated_asset_type: result.associated_asset_type,
           artifact_id: result.artifact_id.to_s,
-          artifact_type: result.artifact_type
+          artifact_type: result.artifact_type,
+          artifact_created_at: result.artifact.created_at,
+          artifact_updated_at: result.artifact.updated_at
         }.compact!).once
 
         Canvas::LiveEvents.learning_outcome_result_updated(result)
@@ -2077,7 +2169,9 @@ describe Canvas::LiveEvents do
           associated_asset_id: result.associated_asset_id.to_s,
           associated_asset_type: result.associated_asset_type,
           artifact_id: result.artifact_id.to_s,
-          artifact_type: result.artifact_type
+          artifact_type: result.artifact_type,
+          artifact_created_at: result.artifact.created_at,
+          artifact_updated_at: result.artifact.updated_at
         }.compact!).once
 
         Canvas::LiveEvents.learning_outcome_result_updated(result)
@@ -2108,7 +2202,9 @@ describe Canvas::LiveEvents do
           associated_asset_id: result.associated_asset_id.to_s,
           associated_asset_type: result.associated_asset_type,
           artifact_id: result.artifact_id.to_s,
-          artifact_type: result.artifact_type
+          artifact_type: result.artifact_type,
+          artifact_created_at: result.artifact.created_at,
+          artifact_updated_at: result.artifact.updated_at
         }.compact!).once
 
         Canvas::LiveEvents.learning_outcome_result_updated(result)
@@ -2144,7 +2240,9 @@ describe Canvas::LiveEvents do
           associated_asset_id: result.associated_asset_id.to_s,
           associated_asset_type: result.associated_asset_type,
           artifact_id: result.artifact_id.to_s,
-          artifact_type: result.artifact_type
+          artifact_type: result.artifact_type,
+          artifact_created_at: result.artifact.created_at,
+          artifact_updated_at: result.artifact.updated_at
         }.compact!).once
 
         Canvas::LiveEvents.learning_outcome_result_updated(result)

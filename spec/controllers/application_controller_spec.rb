@@ -339,17 +339,18 @@ RSpec.describe ApplicationController do
       end
 
       it "gets appropriate settings from the root account" do
-        root_account = double(global_id: 1, id: 1, feature_enabled?: false, open_registration?: true, can_add_pronouns?: true, settings: {}, cache_key: "key", uuid: "bleh", salesforce_id: "blah")
+        root_account = double(global_id: 1, id: 1, feature_enabled?: false, open_registration?: true, can_add_pronouns?: true, show_sections_in_course_tray?: true, settings: {}, cache_key: "key", uuid: "bleh", salesforce_id: "blah")
         allow(root_account).to receive(:kill_joy?).and_return(false)
         allow(HostUrl).to receive_messages(file_host: "files.example.com")
         controller.instance_variable_set(:@domain_root_account, root_account)
         expect(controller.js_env[:SETTINGS][:open_registration]).to be_truthy
         expect(controller.js_env[:SETTINGS][:can_add_pronouns]).to be_truthy
+        expect(controller.js_env[:SETTINGS][:show_sections_in_course_tray]).to be_truthy
         expect(controller.js_env[:KILL_JOY]).to be_falsey
       end
 
       it "disables fun when set" do
-        root_account = double(global_id: 1, id: 1, feature_enabled?: false, open_registration?: true, can_add_pronouns?: true, settings: {}, cache_key: "key", uuid: "blah", salesforce_id: "bleh")
+        root_account = double(global_id: 1, id: 1, feature_enabled?: false, open_registration?: true, can_add_pronouns?: true, show_sections_in_course_tray?: true, settings: {}, cache_key: "key", uuid: "blah", salesforce_id: "bleh")
         allow(root_account).to receive(:kill_joy?).and_return(true)
         allow(HostUrl).to receive_messages(file_host: "files.example.com")
         controller.instance_variable_set(:@domain_root_account, root_account)
@@ -415,11 +416,12 @@ RSpec.describe ApplicationController do
             icon_url: nil,
             base_url: domain,
             title: "a",
-            pinned: tool.placement_pinned?(:top_navigation),
+            pinned: tool.top_nav_favorite_in_context?(controller.context)
           }
         end
 
         before do
+          controller.instance_variable_set(:@context, Account.default)
           Setting.set("top_navigation_allowed_dev_keys", developer_key.id.to_s)
           Setting.set("top_navigation_allowed_launch_domains", domain)
           allow(Lti::ContextToolFinder).to receive(:all_tools_for).and_return([devkey_tool, domain_tool, unauth_tool])
@@ -763,6 +765,17 @@ RSpec.describe ApplicationController do
         expect { locale = I18n.localizer.call }.to_not raise_error
         expect(locale).to eq("en") # default locale
       end
+
+      it "finds a deleted course if an access token is used" do
+        course_model
+        @course.delete
+
+        controller.instance_variable_set(:@domain_root_account, Account.default)
+        controller.instance_variable_set(:@token, "just some random thing here")
+        allow(controller).to receive_messages(params: { course_id: @course.id })
+        controller.send(:get_context)
+        expect(controller.instance_variable_get(:@context)).to eq @course
+      end
     end
 
     context "require_context" do
@@ -780,6 +793,40 @@ RSpec.describe ApplicationController do
         expect(controller.send(:require_course_context)).to be_truthy
         controller.instance_variable_set(:@context, Account.default)
         expect { controller.send(:require_course_context) }.to raise_error(ActiveRecord::RecordNotFound)
+      end
+    end
+
+    describe "#context_account" do
+      it "returns context if context is Account" do
+        controller.instance_variable_set(:@context, account_model)
+        expect(controller.send(:context_account)).to eq @account
+      end
+
+      it "returns course's account if context is Course" do
+        controller.instance_variable_set(:@context, course_model)
+        expect(controller.send(:context_account)).to eq @course.account
+      end
+
+      it "returns group's account if context is Group" do
+        controller.instance_variable_set(:@context, group_model)
+        expect(controller.send(:context_account)).to eq @group.account
+      end
+
+      it "returns course section if context is a CourseSection" do
+        course_model
+        add_section("section 1", { course: @course })
+        controller.instance_variable_set(:@context, @course_section)
+        expect(controller.send(:context_account)).to eq @course.account
+      end
+
+      it "raises error if context is a User" do
+        controller.instance_variable_set(:@context, user_model)
+        expect { controller.send(:context_account) }.to raise_error("Account can't be derived from a User context")
+      end
+
+      it "raises error if an account can't be derived from context" do
+        controller.instance_variable_set(:@context, assignment_model)
+        expect { controller.send(:context_account) }.to raise_error(ActiveRecord::RecordNotFound)
       end
     end
 
@@ -1186,7 +1233,7 @@ RSpec.describe ApplicationController do
               end
 
               it "caches the LTI 1.3 launch" do
-                expect(cached_launch["https://purl.imsglobal.org/spec/lti/claim/message_type"]).to eq "LtiResourceLinkRequest"
+                expect(cached_launch["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/message_type"]).to eq "LtiResourceLinkRequest"
               end
 
               it "creates a login message" do
@@ -1286,7 +1333,7 @@ RSpec.describe ApplicationController do
 
               it_behaves_like "a placement that caches the launch" do
                 it "sets link-level custom parameters" do
-                  expect(cached_launch["https://purl.imsglobal.org/spec/lti/claim/custom"]).to include("abc" => "def")
+                  expect(cached_launch["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/custom"]).to include("abc" => "def")
                 end
               end
             end
@@ -1506,7 +1553,8 @@ RSpec.describe ApplicationController do
             user:,
             session_id: nil,
             placement: nil,
-            launch_type: :content_item
+            launch_type: :content_item,
+            launch_url: "http://www.example.com/basic_lti"
           )
         end
 
@@ -1880,7 +1928,7 @@ RSpec.describe ApplicationController do
 
           controller.external_tools_display_hashes(:account_navigation, @course)
 
-          expect(controller.js_env[:LTI_TOOL_SCOPES]).to eq("http://example.com" => [TokenScopes::LTI_PAGE_CONTENT_SHOW_SCOPE])
+          expect(controller.js_env[:LTI_TOOL_SCOPES]).to eq("http://example.com" => TokenScopes::LTI_POSTMESSAGE_SCOPES)
         end
       end
 
@@ -1928,6 +1976,43 @@ RSpec.describe ApplicationController do
         allow(controller.request).to receive(:path).and_return("/api/endpoint")
         controller.instance_variable_set(:@pseudonym_session, nil)
         expect { controller.send(:verify_authenticity_token) }.not_to raise_exception
+      end
+    end
+
+    describe "#check_limited_access_for_students" do
+      context "feature flag is enabled on root account" do
+        before do
+          @account = Account.default
+          @account.enable_feature!(:allow_limited_access_for_students)
+          controller.instance_variable_set(:@domain_root_account, @account)
+        end
+
+        it "renders unauthorized if context is a user and a student in account with limited access" do
+          user_factory
+          controller.instance_variable_set(:@context, @user)
+          allow(@user).to receive(:student_in_limited_access_account?).and_return(true)
+          expect(controller).to receive(:render_unauthorized_action)
+          controller.send(:check_limited_access_for_students)
+        end
+
+        it "renders unauthorized if context is account with limited access and user is a student in that account" do
+          controller.instance_variable_set(:@context, @account)
+          allow(@account).to receive(:limited_access_for_user?).and_return(true)
+          expect(controller).to receive(:render_unauthorized_action)
+          controller.send(:check_limited_access_for_students)
+        end
+
+        it "does nothing if context and current_user are not set" do
+          expect(controller).not_to receive(:render_unauthorized_action)
+          expect(controller.send(:check_limited_access_for_students)).to be_nil
+        end
+      end
+
+      context "feature flag is disabled on root account" do
+        it "does nothing" do
+          expect(controller).not_to receive(:render_unauthorized_action)
+          expect(controller.send(:check_limited_access_for_students)).to be_nil
+        end
       end
     end
   end

@@ -66,6 +66,7 @@ type MigratorProps = {
   onSubmit: onSubmitMigrationFormCallback
   onCancel: () => void
   fileUploadProgress: number | null
+  isSubmitting: boolean
 }
 
 const renderMigrator = (props: MigratorProps) => {
@@ -93,31 +94,50 @@ const renderMigrator = (props: MigratorProps) => {
   }
 }
 
+/*
+  This override is needed to set the default workflow state to 'queued' for the migration,
+  because in the StatusPill we want to use the progress workflow state to determine
+  the status of the migration. For example course copy create ContentMigration with default
+  running state.
+
+  The only exception is when the migration is in the 'waiting_for_select' state, because it cannot
+  be represented by the Progress record.
+*/
+const overrideDefaultWorkflowState = (cm: ContentMigrationItem): ContentMigrationItem => {
+  return {
+    ...cm,
+    workflow_state: cm.workflow_state === 'waiting_for_select' ? cm.workflow_state : 'queued',
+  }
+}
+
 export const ContentMigrationsForm = ({
   setMigrations,
 }: {
   setMigrations: Dispatch<SetStateAction<ContentMigrationItem[]>>
 }) => {
   const [migrators, setMigrators] = useState<any>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [chosenMigrator, setChosenMigrator] = useState<string | null>(null)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleFileProgress = (json: any, {loaded, total}: AttachmentProgressResponse) => {
-    setFileUploadProgress(Math.trunc((loaded / total) * 100))
-    if (loaded === total) {
-      onResetForm()
-      setMigrations(prevMigrations => [json as ContentMigrationItem].concat(prevMigrations))
-    }
-  }
+
   const [fileUploadProgress, setFileUploadProgress] = useState<number | null>(null)
+  const onResetForm = useCallback(() => {
+    setChosenMigrator(null)
+    setIsSubmitting(false)
+  }, [])
 
-  const onResetForm = useCallback(() => setChosenMigrator(null), [])
-
+  const handleFileProgress = useCallback(
+    ({loaded, total}: AttachmentProgressResponse) => {
+      setFileUploadProgress(Math.trunc((loaded / total) * 100))
+    },
+    [setFileUploadProgress]
+  )
   const onSubmitForm: onSubmitMigrationFormCallback = useCallback(
     async (formData, preAttachmentFile) => {
       const courseId = window.ENV.COURSE_ID
       if (!chosenMigrator || !courseId || formData.errored) {
         return
       }
+      setIsSubmitting(true)
       delete formData.errored
       const requestBody: RequestBody = {
         course_id: courseId,
@@ -131,15 +151,22 @@ export const ContentMigrationsForm = ({
         body: requestBody,
       })
       if (preAttachmentFile && json.pre_attachment) {
-        completeUpload(json.pre_attachment, preAttachmentFile, {
+        const attachment = await completeUpload(json.pre_attachment, preAttachmentFile, {
           ignoreResult: true,
           onProgress: (response: any) => {
-            handleFileProgress(json, response)
+            handleFileProgress(response)
           },
         })
+        const jsonWithAttachment: ContentMigrationItem = {
+          ...json,
+          attachment,
+        }
+        onResetForm()
+        setMigrations(prevMigrations => [jsonWithAttachment].concat(prevMigrations))
       } else {
         onResetForm()
-        setMigrations(prevMigrations => [json as ContentMigrationItem].concat(prevMigrations))
+        const overriddenJson = overrideDefaultWorkflowState(json as ContentMigrationItem)
+        setMigrations(prevMigrations => [overriddenJson].concat(prevMigrations))
       }
     },
     [chosenMigrator, handleFileProgress, onResetForm, setMigrations]
@@ -180,6 +207,7 @@ export const ContentMigrationsForm = ({
       <View as="div" margin="medium 0" maxWidth="22.5rem">
         {migrators.length > 0 ? (
           <SimpleSelect
+            disabled={isSubmitting}
             value={chosenMigrator || 'empty'}
             renderLabel={I18n.t('Select Content Type')}
             onChange={(_e: any, {value}: any) =>
@@ -207,6 +235,7 @@ export const ContentMigrationsForm = ({
             onSubmit: onSubmitForm,
             onCancel: onResetForm,
             fileUploadProgress,
+            isSubmitting,
           })}
           <hr role="presentation" aria-hidden="true" />
         </>

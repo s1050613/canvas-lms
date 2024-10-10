@@ -21,9 +21,12 @@
 require_relative "../../import_helper"
 
 describe Course do
-  describe "import_content" do
+  describe "#import_content" do
     before(:once) do
       @course = course_factory
+      @course.root_account.settings[:provision] = { "lti" => "lti url" }
+      @course.root_account.save!
+      @course
     end
 
     it "imports a whole json file" do
@@ -333,19 +336,96 @@ describe Course do
       expect(a1.reload).to be_deleted # didn't restore the previously deleted assignment too
     end
 
-    context "when it is a Quizzes.Next migration" do
+    context "when it is a Quizzes.Next import process" do
       let(:migration) do
         params = { copy: { "everything" => true } }
         build_migration(@course, params)
       end
 
       before do
-        allow(migration).to receive(:quizzes_next_migration?).and_return(true)
+        allow(migration).to receive(:quizzes_next_import_process?).and_return(true)
       end
 
       it "does not set workflow_state to imported" do
         setup_import(@course, "assessments.json", migration)
         expect(migration.workflow_state).not_to eq("imported")
+      end
+    end
+
+    describe "content migration workflow_state" do
+      subject { setup_import(@course, "assessments.json", migration) }
+
+      let(:migration) { build_migration(@course, copy: { "everything" => true }) }
+
+      it "set workflow_state to imported" do
+        subject
+        expect(migration.workflow_state).to eq("imported")
+      end
+
+      context "when the migration_type is common_cartridge_importer" do
+        before do
+          migration.migration_type = "common_cartridge_importer"
+        end
+
+        it "set workflow_state to imported" do
+          subject
+          expect(migration.workflow_state).to eq("imported")
+        end
+
+        context "when common_cartridge_qti_new_quizzes_import_enabled? is true" do
+          before do
+            Account.site_admin.enable_feature!(:common_cartridge_qti_new_quizzes_import)
+            migration.context.root_account.enable_feature!(:new_quizzes_migration)
+          end
+
+          it "does not set workflow_state to imported" do
+            subject
+            expect(migration.workflow_state).not_to eq("imported")
+          end
+        end
+      end
+
+      context "when the migration_type is canvas_cartridge_importer" do
+        before do
+          migration.migration_type = "canvas_cartridge_importer"
+        end
+
+        it "set workflow_state to imported" do
+          subject
+          expect(migration.workflow_state).to eq("imported")
+        end
+
+        context "when common_cartridge_qti_new_quizzes_import_enabled? is true" do
+          before do
+            Account.site_admin.enable_feature!(:common_cartridge_qti_new_quizzes_import)
+            migration.context.root_account.enable_feature!(:new_quizzes_migration)
+          end
+
+          it "does not set workflow_state to imported" do
+            subject
+            expect(migration.workflow_state).not_to eq("imported")
+          end
+        end
+      end
+
+      context "when quizzes_next is enabled" do
+        before { migration.context.enable_feature!(:quizzes_next) }
+
+        it "set workflow_state to imported" do
+          subject
+          expect(migration.workflow_state).to eq("imported")
+        end
+
+        context "when import_quizzes_next is true in migration settings" do
+          before do
+            migration.migration_settings[:import_quizzes_next] = true
+          end
+
+          it "set workflow_state to imported" do
+            subject
+            expect(migration.workflow_state).not_to eq("imported")
+          end
+        end
       end
     end
 
@@ -483,9 +563,9 @@ describe Course do
       @course.account.settings[:sis_require_assignment_due_date] = true
       @course.account.save!
 
-      assignment = @course.assignments.create!(due_at: Time.now + 1.day)
+      assignment = @course.assignments.create!(due_at: 1.day.from_now)
       assignment.post_to_sis = true
-      assignment.due_at = Time.now + 1.day
+      assignment.due_at = 1.day.from_now
       assignment.name = "lalala"
       assignment.save!
 
@@ -501,6 +581,65 @@ describe Course do
       Importers::CourseContentImporter.adjust_dates(@course, migration)
       expect(migration.warnings.length).to eq 1
       expect(migration.warnings[0]).to eq "Couldn't adjust dates on assignment lalala (ID #{assignment.id})"
+    end
+
+    describe "pre_date_shift_for_assignment_importing FF" do
+      subject { Importers::CourseContentImporter.adjust_dates(course, migration) }
+
+      let(:course) { course_model }
+      let(:migration) do
+        course.content_migrations.create!(
+          migration_settings: {
+            date_shift_options: {
+              old_start_date: "2023-01-01",
+              old_end_date: "2023-12-31",
+              new_start_date: "2024-01-01",
+              new_end_date: "2024-12-31"
+            }
+          }
+        )
+      end
+
+      context "when the FF is enabled" do
+        before do
+          Account.site_admin.enable_feature!(:pre_date_shift_for_assignment_importing)
+        end
+
+        it "should not adjust Assignment dates" do
+          expect(migration).not_to receive(:imported_migration_items_by_class).with(Assignment)
+          subject
+        end
+
+        it "should not adjust Quiz::Quizzes dates" do
+          expect(migration).not_to receive(:imported_migration_items_by_class).with(Quizzes::Quiz)
+          subject
+        end
+      end
+
+      context "when the FF is disabled" do
+        before do
+          allow(migration).to receive(:imported_migration_items_by_class).with(CalendarEvent).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(AssignmentOverride).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(ContextModule).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(WikiPage).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(Attachment).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(Folder).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(Announcement).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(DiscussionTopic).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(Assignment).and_call_original
+          allow(migration).to receive(:imported_migration_items_by_class).with(Quizzes::Quiz).and_call_original
+        end
+
+        it "should adjust Assignment dates" do
+          expect(migration).to receive(:imported_migration_items_by_class).with(Assignment).and_call_original
+          subject
+        end
+
+        it "should adjust Quiz::Quizzes dates" do
+          expect(migration).to receive(:imported_migration_items_by_class).with(Quizzes::Quiz).and_call_original
+          subject
+        end
+      end
     end
   end
 
@@ -765,6 +904,49 @@ describe Course do
       allow(Auditors::Course).to receive(:record_copied).and_raise("Something went wrong at the last minute")
       expect { subject }.to raise_error("Something went wrong at the last minute")
       expect(InstStatsd::Statsd).to_not have_received(:timing).with("content_migrations.import_failure")
+    end
+  end
+
+  describe "#error_on_dates?" do
+    let(:item) { double("item") }
+    let(:attributes) { [:due_at] }
+
+    context "when there are errors on the given attributes" do
+      before do
+        allow(item).to receive(:errors).and_return({ due_at: ["validation error"] })
+      end
+
+      it "returns true" do
+        expect(Importers::CourseContentImporter.error_on_dates?(item, attributes)).to be true
+      end
+    end
+
+    context "when there are no errors on the given attributes" do
+      before do
+        allow(item).to receive(:errors).and_return({ due_at: [] })
+      end
+
+      it "returns false" do
+        expect(Importers::CourseContentImporter.error_on_dates?(item, attributes)).to be false
+      end
+    end
+
+    context "when attributes is empty" do
+      let(:attributes) { [] }
+
+      it "returns false" do
+        expect(Importers::CourseContentImporter.error_on_dates?(item, attributes)).to be false
+      end
+    end
+
+    context "when item errors is empty" do
+      before do
+        allow(item).to receive(:errors).and_return({})
+      end
+
+      it "returns false" do
+        expect(Importers::CourseContentImporter.error_on_dates?(item, attributes)).to be false
+      end
     end
   end
 end

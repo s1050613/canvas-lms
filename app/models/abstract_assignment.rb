@@ -113,7 +113,7 @@ class AbstractAssignment < ActiveRecord::Base
   has_many :learning_outcome_alignments, -> { where("content_tags.tag_type='learning_outcome' AND content_tags.workflow_state<>'deleted'").preload(:learning_outcome) }, as: :content, inverse_of: :content, class_name: "ContentTag"
   has_one :rubric_association, -> { where(purpose: "grading").order(:created_at).preload(:rubric) }, as: :association, inverse_of: :association_object
   has_one :rubric, -> { merge(RubricAssociation.active) }, through: :rubric_association
-  has_one :teacher_enrollment, -> { preload(:user).where(enrollments: { workflow_state: "active", type: "TeacherEnrollment" }) }, class_name: "TeacherEnrollment", foreign_key: "course_id", primary_key: "context_id"
+  has_one :teacher_enrollment, -> { preload(:user).where(enrollments: { workflow_state: "active", type: "TeacherEnrollment" }) }, class_name: "TeacherEnrollment", foreign_key: "course_id", primary_key: "context_id", inverse_of: false
   has_many :ignores, as: :asset
   has_many :moderated_grading_selections, class_name: "ModeratedGrading::Selection", inverse_of: :assignment, foreign_key: :assignment_id
   belongs_to :context, polymorphic: [:course]
@@ -128,8 +128,8 @@ class AbstractAssignment < ActiveRecord::Base
   has_many :enrollments_for_assigned_students, -> { active.not_fake.where("enrollments.course_id = submissions.course_id") }, through: :assigned_students, source: :enrollments
   has_many :sections_for_assigned_students, -> { active.distinct }, through: :enrollments_for_assigned_students, source: :course_section
 
-  belongs_to :duplicate_of, class_name: "Assignment", optional: true, inverse_of: :duplicates
-  has_many :duplicates, class_name: "Assignment", inverse_of: :duplicate_of, foreign_key: "duplicate_of_id"
+  belongs_to :duplicate_of, class_name: "AbstractAssignment", optional: true, inverse_of: :duplicates
+  has_many :duplicates, class_name: "AbstractAssignment", inverse_of: :duplicate_of, foreign_key: "duplicate_of_id"
 
   has_many :assignment_configuration_tool_lookups, dependent: :delete_all, inverse_of: :assignment, foreign_key: :assignment_id
   has_many :tool_settings_context_external_tools, through: :assignment_configuration_tool_lookups, source: :tool, source_type: "ContextExternalTool"
@@ -160,6 +160,7 @@ class AbstractAssignment < ActiveRecord::Base
   belongs_to :parent_assignment, class_name: "Assignment", inverse_of: :sub_assignments
   has_many :sub_assignments, -> { active }, foreign_key: :parent_assignment_id, inverse_of: :parent_assignment
   has_many :sub_assignment_submissions, through: :sub_assignments, source: :submissions
+  has_many :sub_assignment_overrides, through: :sub_assignments, source: :assignment_overrides
 
   scope :assigned_to_student, ->(student_id) { joins(:submissions).where(submissions: { user_id: student_id }) }
   scope :anonymous, -> { where(anonymous_grading: true) }
@@ -319,6 +320,7 @@ class AbstractAssignment < ActiveRecord::Base
     return self if new_record?
 
     default_opts = {
+      discussion_topic_for_checkpoints: nil,
       duplicate_wiki_page: true,
       duplicate_discussion_topic: true,
       duplicate_plagiarism_tool_association: true,
@@ -364,6 +366,21 @@ class AbstractAssignment < ActiveRecord::Base
                                                              copy_title: result.title,
                                                              user: opts_with_default[:user]
                                                            })
+    end
+
+    if checkpoints_parent? && opts_with_default[:discussion_topic_for_checkpoints]
+      result.discussion_topic = opts_with_default[:discussion_topic_for_checkpoints]
+
+      # we have to save result here because we have to set it as a parent_assignment
+      result.save!
+      sub_assignments.each do |sub_assignment|
+        new_sa = sub_assignment.duplicate({
+                                            duplicate_wiki_page: false,
+                                            duplicate_discussion_topic: false,
+                                          })
+        new_sa.parent_assignment = result
+        new_sa.save!
+      end
     end
 
     result.discussion_topic&.assignment = result
@@ -449,7 +466,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def self.clean_up_duplicating_assignments
-    duplicating_for_too_long.update_all(
+    duplicating_for_too_long.in_batches(of: 10_000).update_all(
       duplication_started_at: nil,
       workflow_state: "failed_to_duplicate",
       updated_at: Time.zone.now
@@ -457,7 +474,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def self.clean_up_cloning_alignments
-    cloning_alignments_for_too_long.update_all(
+    cloning_alignments_for_too_long.in_batches(of: 10_000).update_all(
       duplication_started_at: nil,
       workflow_state: "failed_to_clone_outcome_alignment",
       updated_at: Time.zone.now
@@ -465,15 +482,15 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def self.clean_up_importing_assignments
-    importing_for_too_long.update_all(
+    importing_for_too_long.in_batches(of: 10_000).update_all(
       importing_started_at: nil,
-      workflow_state: "failed_to_import",
+      workflow_state: "fail_to_import",
       updated_at: Time.zone.now
     )
   end
 
   def self.clean_up_migrating_assignments
-    migrating_for_too_long.update_all(
+    migrating_for_too_long.in_batches(of: 10_000).update_all(
       duplication_started_at: nil,
       workflow_state: "failed_to_migrate",
       updated_at: Time.zone.now
@@ -636,7 +653,7 @@ class AbstractAssignment < ActiveRecord::Base
     # remove the . if they put it on, and extra whitespace
     new_value.map! { |v| v.strip.delete_prefix(".").downcase } if new_value.is_a?(Array)
 
-    write_attribute(:allowed_extensions, new_value)
+    super
   end
 
   # ensure a root_account_id is set before validation so that we can
@@ -964,7 +981,7 @@ class AbstractAssignment < ActiveRecord::Base
         settings[key] = turnitin_settings[key] if turnitin_settings[key]
       end
     end
-    write_attribute :turnitin_settings, settings
+    self[:turnitin_settings] = settings
   end
 
   def create_in_vericite
@@ -1000,7 +1017,7 @@ class AbstractAssignment < ActiveRecord::Base
         settings[key] = turnitin_settings[key] if turnitin_settings[key]
       end
     end
-    write_attribute :turnitin_settings, settings
+    self[:turnitin_settings] = settings
   end
 
   def self.all_day_interpretation(opts = {})
@@ -1055,7 +1072,14 @@ class AbstractAssignment < ActiveRecord::Base
     if will_save_change_to_submission_types? && ["none", "on_paper"].include?(self.submission_types)
       self.allowed_attempts = nil
     end
-    self.peer_reviews_assigned = false if peer_reviews_due_at_changed?
+
+    peer_review_assign_changed = peer_reviews_due_at_changed?
+    due_at_changed_with_no_peer_review_assign_date = peer_reviews_due_at.nil? && due_at_changed? && due_at.present? && next_auto_peer_review_date(Time.zone.now)
+
+    if peer_review_assign_changed || due_at_changed_with_no_peer_review_assign_date
+      self.peer_reviews_assigned = false
+    end
+
     %i[
       all_day
       could_be_locked
@@ -1223,7 +1247,7 @@ class AbstractAssignment < ActiveRecord::Base
   # filtered by context during migrate_content_to_1_3
   # @see Lti::Migratable
   def self.directly_associated_items(tool_id)
-    Assignment.nondeleted.joins(:external_tool_tag).where(content_tags: { content_id: tool_id })
+    Assignment.nondeleted.joins(:external_tool_tag).where(content_tags: { content_type: ContextExternalTool, content_id: tool_id })
   end
 
   # filtered by context during migrate_content_to_1_3
@@ -1459,7 +1483,9 @@ class AbstractAssignment < ActiveRecord::Base
     rubric_association.destroy if active_rubric_association?
     save!
 
-    each_submission_type { |submission| submission.destroy if submission && !submission.deleted? }
+    unless is_a?(SubAssignment)
+      each_submission_type { |submission| submission.destroy if submission && !submission.deleted? }
+    end
     conditional_release_rules.destroy_all
     conditional_release_associations.destroy_all
     refresh_course_content_participation_counts
@@ -1494,7 +1520,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def time_zone_edited
-    CGI.unescapeHTML(read_attribute(:time_zone_edited) || "")
+    CGI.unescapeHTML(super || "")
   end
 
   def restore(from = nil)
@@ -1743,7 +1769,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def all_day
-    read_attribute(:all_day) || (new_record? && !!due_at && (due_at.strftime("%H:%M") == "23:59" || due_at.strftime("%H:%M") == "00:00"))
+    super || (new_record? && !!due_at && (due_at.strftime("%H:%M") == "23:59" || due_at.strftime("%H:%M") == "00:00"))
   end
 
   def self.preload_context_module_tags(assignments, include_context_modules: false)
@@ -1881,6 +1907,7 @@ class AbstractAssignment < ActiveRecord::Base
     if block_given?
       submittable_types = %i[discussion_topic quiz]
       submittable_types << :wiki_page if context.try(:conditional_release?)
+      # one of these is the submittable_object
       submittable_types.each do |asg_type|
         submittable = send(asg_type)
         yield submittable, Assignment.get_submission_type(asg_type), asg_type
@@ -1889,7 +1916,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def graded_count
-    return read_attribute(:graded_count).to_i if read_attribute(:graded_count)
+    return self["graded_count"].to_i if has_attribute?("graded_count")
 
     Rails.cache.fetch(["graded_count", self].cache_key) do
       submissions.graded.in_workflow_state("graded").count
@@ -1909,7 +1936,7 @@ class AbstractAssignment < ActiveRecord::Base
   attr_writer :has_submitted_submissions
 
   def submitted_count
-    return read_attribute(:submitted_count).to_i if read_attribute(:submitted_count)
+    return self["submitted_count"].to_i if has_attribute?("submitted_count")
 
     Rails.cache.fetch(["submitted_count", self].cache_key) do
       submissions.having_submission.count
@@ -1932,7 +1959,8 @@ class AbstractAssignment < ActiveRecord::Base
     given do |user, session|
       (submittable_type? || %w[discussion_topic online_quiz none not_graded].include?(submission_types)) &&
         context.grants_right?(user, session, :participate_as_student) &&
-        visible_to_user?(user)
+        visible_to_user?(user) &&
+        !course.account.limited_access_for_user?(user)
     end
     can :attach_submission_comment_files
 
@@ -2032,7 +2060,13 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def title_with_id
-    "#{title} (#{id})"
+    if sub_assignment_tag == CheckpointLabels::REPLY_TO_TOPIC
+      "#{title} Reply To Topic (#{id})"
+    elsif sub_assignment_tag == CheckpointLabels::REPLY_TO_ENTRY
+      "#{title} Required Replies (#{id})"
+    else
+      "#{title} (#{id})"
+    end
   end
 
   def title_slug
@@ -2040,8 +2074,17 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def self.title_and_id(str)
+    # Define patterns to ignore, but only at the end before the ID
+    ignore_patterns = /\s+(Reply To Topic|Required Replies)\s*$/
+
+    # Check if the string matches the pattern and extract title and id
     if str =~ /\A(.*)\s\((\d+)\)\z/
-      [$1, $2]
+      title_part = $1
+      id = $2
+
+      # Remove the ignored pattern only if it's at the end of the title part
+      cleaned_title = title_part.sub(ignore_patterns, "").strip
+      [cleaned_title, id]
     else
       [str, nil]
     end
@@ -2303,16 +2346,19 @@ class AbstractAssignment < ActiveRecord::Base
   private :save_grade_to_submission
 
   def find_or_create_submission(user, skip_grader_check: false)
-    Assignment.unique_constraint_retry do
-      s = all_submissions.where(user_id: user).first
-      unless s
-        s = submissions.build
-        user.is_a?(User) ? s.user = user : s.user_id = user
-        s.skip_grader_check = true if skip_grader_check
-        s.save!
+    s = all_submissions.find_by(user:)
+
+    unless s
+      s = submissions.build
+      user.is_a?(User) ? s.user = user : s.user_id = user
+      s.skip_grader_check = true if skip_grader_check
+
+      s.shard.activate do
+        s.insert(on_conflict: -> { find_or_create_submission(user, skip_grader_check:) })
       end
-      s
     end
+
+    s
   end
 
   def find_or_create_submissions(students, relation = nil)
@@ -2707,7 +2753,7 @@ class AbstractAssignment < ActiveRecord::Base
 
   def groups_and_ungrouped(user, includes: [])
     groups_and_users = group_category
-                       .groups.active.preload(group_memberships: :user)
+                       .groups.active.preload(:users)
                        .map { |g| [g.name, { sortable_name: g.name, users: g.users }] }
     users_in_group = groups_and_users.flat_map { |_, group_info| group_info[:users] }
     groupless_users = visible_students_for_speed_grader(user:, includes:) - users_in_group
@@ -3015,7 +3061,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def peer_reviews_assign_at=(val)
-    write_attribute(:peer_reviews_due_at, val)
+    self.peer_reviews_due_at = val
   end
 
   def has_peer_reviews?
@@ -3222,6 +3268,9 @@ class AbstractAssignment < ActiveRecord::Base
 
   scope :unpublished, -> { where(workflow_state: "unpublished") }
   scope :published, -> { where(workflow_state: "published") }
+
+  scope :has_sub_assignments, -> { where(has_sub_assignments: true) }
+  scope :has_no_sub_assignments, -> { where(has_sub_assignments: false) }
 
   scope :duplicating_for_too_long, lambda {
     where(
@@ -3524,6 +3573,16 @@ class AbstractAssignment < ActiveRecord::Base
         )
       end
     end
+  end
+
+  def multiple_distinct_due_dates?
+    count = if association(:submissions).loaded?
+              submissions.pluck(:cached_due_date).uniq.count
+            else
+              submissions.distinct(:cached_due_date).count(:cached_due_date)
+            end
+
+    count > 1
   end
 
   def apply_late_policy

@@ -1360,8 +1360,7 @@ describe Course do
           expect(c.grants_right?(@designer, :read)).to be_truthy
         end
 
-        it "does not grant read_user_notes or view_all_grades to designer" do
-          expect(c.grants_right?(@designer, :read_user_notes)).to be_falsey
+        it "does not grant view_all_grades to designer" do
           expect(c.grants_right?(@designer, :view_all_grades)).to be_falsey
         end
       end
@@ -1577,6 +1576,33 @@ describe Course do
 
         @new_course = @course.reset_content
         expect(fav.reload.context).to eq @new_course
+      end
+
+      context "uuid" do
+        it "does not move the uuid to the new course during reset" do
+          orig_uuid = "original_uuid"
+          @course.uuid = orig_uuid
+          @course.save!
+          @course.reload
+
+          new_course = @course.reset_content
+
+          @course.reload
+          expect(@course.uuid).to eq orig_uuid
+          expect(new_course.uuid).to match(/[0-9a-zA-z]{40}/)
+        end
+
+        it "moves the uuid to the new course during reset if feature flag is disabled" do
+          @course.root_account.disable_feature!(:reset_uuid_on_course_reset)
+
+          orig_uuid = "original_uuid"
+          @course.uuid = orig_uuid
+          @course.save!
+          @course.reload
+
+          new_course = @course.reset_content
+          expect(new_course.uuid).to eq orig_uuid
+        end
       end
     end
 
@@ -4377,6 +4403,7 @@ describe Course do
           end
 
           def csv_output(include_final_grade_overrides: true)
+            @ase.each(&:reload)
             @course.generate_grade_publishing_csv_output(
               @ase,
               @user,
@@ -4469,6 +4496,7 @@ describe Course do
           end
 
           def csv_output
+            @ase.each(&:reload)
             @course.generate_grade_publishing_csv_output(@ase, @user, @pseudonym)
           end
 
@@ -5471,6 +5499,35 @@ describe Course do
         expect(@course.enrollment_visibility_level_for(@student1, @course.section_visibilities_for(@student1), require_message_permission: true)).to be :restricted
       end
     end
+
+    context "section_visibilities_for" do
+      before :once do
+        @course.root_account.enable_feature!(:temporary_enrollments)
+        temporary_enrollment_pairing = TemporaryEnrollmentPairing.create!(root_account: @course.root_account, created_by: @teacher)
+        @temp_enrollment = @course.enroll_teacher(
+          @teacher,
+          section: @other_section,
+          temporary_enrollment_source_user_id: @ta.id,
+          temporary_enrollment_pairing_id: temporary_enrollment_pairing.id,
+          limit_privileges_to_course_section: true,
+          allow_multiple_enrollments: true
+        )
+      end
+
+      it "filters out sections from non active temporary enrolments" do
+        @temp_enrollment.enrollment_state.update(state: "inactive")
+
+        section_ids = @course.section_visibilities_for(@teacher).pluck(:course_section_id)
+        expect(section_ids).to match_array([@course.default_section.id])
+      end
+
+      it "returns temp enrollment section if enrollment_state of that is active" do
+        @temp_enrollment.enrollment_state.update(state: "active")
+
+        section_ids = @course.section_visibilities_for(@teacher).pluck(:course_section_id)
+        expect(section_ids).to match_array([@course.default_section.id, @other_section.id])
+      end
+    end
   end
 
   context "enrollments" do
@@ -5925,7 +5982,7 @@ describe Course do
     it "generates a code on demand for existing self enrollment courses" do
       Course.where(id: @course).update_all(self_enrollment: true)
       c1.reload
-      expect(c1.read_attribute(:self_enrollment_code)).to be_nil
+      expect(c1["self_enrollment_code"]).to be_nil
       expect(c1.self_enrollment_code).not_to be_nil
       expect(c1.self_enrollment_code).to match(/\A[A-Z0-9]{6}\z/)
     end
@@ -5937,8 +5994,8 @@ describe Course do
     end
 
     before do
-      @course.write_attribute(:workflow_state, "available")
-      @course.write_attribute(:is_public, true)
+      @course.workflow_state = "available"
+      @course.is_public = true
     end
 
     it "can be read by a nil user if public and available" do
@@ -5946,14 +6003,14 @@ describe Course do
     end
 
     it "cannot be read by a nil user if public but not available" do
-      @course.write_attribute(:workflow_state, "created")
+      @course.workflow_state = "created"
       expect(@course.check_policy(nil)).to eq []
     end
 
     describe "when course is unpublished" do
       before do
-        @course.write_attribute(:workflow_state, "claimed")
-        @course.write_attribute(:is_public, false)
+        @course.workflow_state = "claimed"
+        @course.is_public = false
       end
 
       let_once(:user) { user_model }
@@ -5971,7 +6028,7 @@ describe Course do
 
     describe "when course is not public" do
       before do
-        @course.write_attribute(:is_public, false)
+        @course.is_public = false
       end
 
       let_once(:user) { user_model }
@@ -6599,7 +6656,7 @@ describe Course do
     end
   end
 
-  context "#unpublishable?" do
+  describe "#unpublishable?" do
     it "is not unpublishable if there are active graded submissions" do
       course_with_teacher(active_all: true)
       @student = student_in_course(active_user: true).user

@@ -17,6 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
+# test selenium run
+require_relative "../common"
 require_relative "pages/discussions_index_page"
 require_relative "../helpers/discussions_common"
 require_relative "../helpers/context_modules_common"
@@ -316,11 +318,48 @@ describe "discussions index" do
         expect(displayed_overrides).to match_array(expected_overrides)
       end
 
+      it "displays checkpointed discussion assign to tray correctly" do
+        Account.site_admin.enable_feature! :discussion_checkpoints
+        checkpointed_discussion = create_graded_discussion(@course)
+
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: 2.days.from_now }],
+          points_possible: 6
+        )
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+          dates: [{ type: "everyone", due_at: 3.days.from_now }],
+          points_possible: 7,
+          replies_required: 2
+        )
+
+        login_and_visit_course(@teacher, @course)
+        DiscussionsIndex.click_assign_to_menu_option(checkpointed_discussion.title)
+
+        expect(module_item_assign_to_card.first).not_to contain_css(due_date_input_selector)
+        expect(module_item_assign_to_card.first).to contain_css(reply_to_topic_due_date_input_selector)
+        expect(module_item_assign_to_card.first).to contain_css(required_replies_due_date_input_selector)
+      end
+
       it "does not render assign to tray on group discussions index" do
         group = @course.groups.create!(name: "Group 1")
         discussion = group.discussion_topics.create!(title: "group topic")
         user_session(@teacher)
         get("/groups/#{group.id}/discussion_topics/")
+        wait_for_ajaximations
+        DiscussionsIndex.discussion_menu(discussion.title).click
+        expect(DiscussionsIndex.manage_discussions_menu).to include_text("Delete")
+        expect(DiscussionsIndex.manage_discussions_menu).not_to include_text("Assign To")
+      end
+
+      it "does not render assign to tray in course context with ungraded group discussions index" do
+        group = @course.groups.create!(name: "Group 1")
+        discussion = @course.discussion_topics.create!(title: "group topic", group_category: group.group_category)
+        user_session(@teacher)
+        get("/courses/#{@course.id}/discussion_topics/")
         wait_for_ajaximations
         DiscussionsIndex.discussion_menu(discussion.title).click
         expect(DiscussionsIndex.manage_discussions_menu).to include_text("Delete")
@@ -337,6 +376,39 @@ describe "discussions index" do
         login_and_visit_course(@teacher, @course)
         DiscussionsIndex.discussion_menu(discussion.title).click
         expect(DiscussionsIndex.manage_discussions_menu).not_to include_text("Assign To")
+      end
+    end
+
+    context "when instui nav feature flag on" do
+      page_header_title_all = "Discussions"
+      page_header_title_unread = "Unread Discussions"
+
+      before do
+        @course.root_account.enable_feature!(:instui_nav)
+        login_and_visit_course(@teacher, @course)
+      end
+
+      it "discussions header title rendered correctly without filter selection" do
+        expect(DiscussionsIndex.discussion_header_title(page_header_title_all)).to eq page_header_title_all
+      end
+
+      it "discussions header title rendered correctly with all filter" do
+        DiscussionsIndex.select_filter_from_menu("all")
+        current_title = DiscussionsIndex.discussion_header_title(page_header_title_all)
+        expect(current_title).to eq page_header_title_all
+      end
+
+      it "discussions header title rendered correctly with unread filter" do
+        DiscussionsIndex.select_filter_from_menu("unread")
+        current_title = DiscussionsIndex.discussion_header_title(page_header_title_unread)
+        expect(current_title).to eq page_header_title_unread
+      end
+
+      it "discussions can be filtered with unread filter" do
+        DiscussionsIndex.select_filter_from_menu("unread")
+        expect(DiscussionsIndex.discussion(discussion1_title)).to be_displayed
+        expect(DiscussionsIndex.discussion_group("Closed for Comments"))
+          .not_to contain_jqcss(DiscussionsIndex.discussion_title_css(discussion2_title))
       end
     end
   end

@@ -27,13 +27,13 @@ import {View} from '@instructure/ui-view'
 import {PreviewModal} from './PreviewModal'
 import {IconUndo, IconRedo} from '../../assets/internal-icons'
 
-type TopbarProps = {
+export type TopbarProps = {
   toolboxOpen: boolean
   onToolboxChange: (open: boolean) => void
 }
 
 export const Topbar = ({toolboxOpen, onToolboxChange}: TopbarProps) => {
-  const {canUndo, canRedo, actions, query} = useEditor((state, qry) => ({
+  const {canUndo, canRedo, actions} = useEditor((state, qry) => ({
     canUndo: qry.history.canUndo(),
     canRedo: qry.history.canRedo(),
     query: qry,
@@ -56,7 +56,7 @@ export const Topbar = ({toolboxOpen, onToolboxChange}: TopbarProps) => {
   )
 
   return (
-    <View as="div" background="secondary">
+    <View as="div" background="secondary" className="topbar" tabIndex={-1}>
       <Flex justifyItems="space-between" padding="x-small">
         <Flex.Item>
           <Flex gap="small">
@@ -83,6 +83,7 @@ export const Topbar = ({toolboxOpen, onToolboxChange}: TopbarProps) => {
         </Flex.Item>
         <Flex.Item>
           <Checkbox
+            id="toolbox-toggle"
             label="Block Toolbox"
             variant="toggle"
             size="small"
@@ -100,7 +101,7 @@ export const Topbar = ({toolboxOpen, onToolboxChange}: TopbarProps) => {
           </Button> */}
         </Flex.Item>
       </Flex>
-      <PreviewModal open={previewOpen} onDismiss={handleClosePreview} />
+      {previewOpen && <PreviewModal open={previewOpen} onDismiss={handleClosePreview} />}
     </View>
   )
 }

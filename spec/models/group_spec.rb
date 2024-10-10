@@ -130,7 +130,7 @@ describe Group do
     end
   end
 
-  context "#peer_groups" do
+  describe "#peer_groups" do
     it "finds all peer groups" do
       context = course_model
       group_category = context.group_categories.create(name: "worldCup")
@@ -449,27 +449,27 @@ describe Group do
     end
   end
 
-  context "#full?" do
+  describe "#full?" do
     it "returns true when category group_limit has been met" do
-      @group.group_category = @course.group_categories.build(name: "foo")
-      @group.group_category.group_limit = 1
+      @group.group_category = @course.group_categories.build(name: "foo", group_limit: 1)
       @group.add_user user_model, "accepted"
+      @group.association(:participating_users).reset
       expect(@group).to be_full
     end
 
     it "returns true when max_membership has been met" do
-      @group.group_category = @course.group_categories.build(name: "foo")
-      @group.group_category.group_limit = 0
+      @group.group_category = @course.group_categories.build(name: "foo", group_limit: 0)
       @group.max_membership = 1
       @group.add_user user_model, "accepted"
+      @group.association(:participating_users).reset
       expect(@group).to be_full
     end
 
     it "returns false when max_membership has not been met" do
-      @group.group_category = @course.group_categories.build(name: "foo")
-      @group.group_category.group_limit = 0
+      @group.group_category = @course.group_categories.build(name: "foo", group_limit: 0)
       @group.max_membership = 2
       @group.add_user user_model, "accepted"
+      @group.association(:participating_users).reset
       expect(@group).not_to be_full
     end
 
@@ -477,9 +477,9 @@ describe Group do
       # no category
       expect(@group).not_to be_full
       # not full
-      @group.group_category = @course.group_categories.build(name: "foo")
-      @group.group_category.group_limit = 2
+      @group.group_category = @course.group_categories.build(name: "foo", group_limit: 2)
       @group.add_user user_model, "accepted"
+      @group.association(:participating_users).reset
       expect(@group).not_to be_full
     end
   end
@@ -934,6 +934,67 @@ describe Group do
 
         expect(Group.ids_by_student_by_assignment([first_student.id], [])).to be_empty
       end
+    end
+  end
+
+  describe "non_collaborative groups" do
+    let(:course) { Course.create! }
+    let(:account) { Account.create! }
+    let(:user) { User.create! }
+    let(:non_collaborative_category) { GroupCategory.create!(name: "Non-collab Category", context: course, non_collaborative: true) }
+    let(:collaborative_category) { GroupCategory.create!(name: "Collab Category", context: course, non_collaborative: false) }
+
+    it "non_collaborative can be set on creation but cannot be changed afterwards" do
+      # Set non_collaborative on creation
+      group = Group.create(context: course, group_category: non_collaborative_category, name: "Test Group", non_collaborative: true)
+      expect(group).to be_valid
+      expect(group.non_collaborative).to be true
+
+      # Attempt to change non_collaborative
+      group.non_collaborative = false
+      group.save
+      expect(group.reload.non_collaborative).to be true
+
+      # Attempt to change non_collaborative using update
+      group.update(non_collaborative: false)
+      expect(group.reload.non_collaborative).to be true
+
+      # Create a group without setting non_collaborative
+      another_group = Group.create(context: course, group_category: collaborative_category, name: "Another Test Group")
+      expect(another_group).to be_valid
+      expect(another_group.non_collaborative).to be false
+
+      # Attempt to set non_collaborative after creation
+      another_group.non_collaborative = true
+      another_group.save
+      expect(another_group.reload.non_collaborative).to be false
+    end
+
+    it "must belong to a course" do
+      course_group = Group.new(context: course, group_category: non_collaborative_category, name: "Course Group", non_collaborative: true)
+      expect(course_group).to be_valid
+
+      account_group = Group.new(context: account, group_category: non_collaborative_category, name: "Account Group", non_collaborative: true)
+      expect(account_group).not_to be_valid
+      expect(account_group.errors[:base]).to include("Non-collaborative groups must belong to a course")
+    end
+
+    it "cannot have a leader" do
+      group_with_leader = Group.new(context: course, group_category: non_collaborative_category, name: "Group with Leader", non_collaborative: true, leader: user)
+      expect(group_with_leader).not_to be_valid
+      expect(group_with_leader.errors[:base]).to include("Non-collaborative groups cannot have a leader")
+
+      group_without_leader = Group.new(context: course, group_category: non_collaborative_category, name: "Group without Leader", non_collaborative: true)
+      expect(group_without_leader).to be_valid
+    end
+
+    it "must match the non_collaborative status of its category" do
+      mismatched_group = Group.new(context: course, name: "Mismatched Group", non_collaborative: true, group_category: collaborative_category)
+      expect(mismatched_group).not_to be_valid
+      expect(mismatched_group.errors[:base]).to include("Group non_collaborative status must match its category")
+
+      matched_group = Group.new(context: course, name: "Matched Group", non_collaborative: true, group_category: non_collaborative_category)
+      expect(matched_group).to be_valid
     end
   end
 end

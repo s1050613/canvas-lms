@@ -19,7 +19,11 @@
   css_bundle(:instructure_eportfolio) if @eportfolio_view === true
   css_bundle(:new_user_tutorials) if tutorials_enabled?
   js_bundle(:navigation_header) unless @headers == false
-  js_bundle(:top_navigation_tools) if @domain_root_account&.feature_enabled?(:top_navigation_placement)
+
+  if @domain_root_account&.feature_enabled?(:top_navigation_placement)
+    js_env INIT_DRAWER_LAYOUT_MUTEX: "init-drawer-layout"
+    js_bundle(:top_navigation_tools)
+end
 
   load_blueprint_courses_ui
   @has_content_notices = load_content_notices
@@ -36,7 +40,8 @@
   # Collapse the course menu according to user preference, unless a certain action
   # requests that it default to collapsed for that page
   @collapse_course_menu ||= @current_user&.reload&.collapse_course_nav?
-  @enhanced_rubrics_enabled = !!@domain_root_account&.feature_enabled?(:enhanced_rubrics)
+  context_is_course_or_account = @context&.is_a?(Course) || @context&.is_a?(Account)
+  @enhanced_rubrics_enabled = context_is_course_or_account ? @context.feature_enabled?(:enhanced_rubrics) : false
 
   if @collapse_course_menu
     subnav_menu_text = t('Show Navigation Menu')
@@ -108,12 +113,12 @@
   </div>
 
   <div id="wrapper" class="ic-Layout-wrapper">
-    <% if crumbs.length > 1 %>
-      <% if @instui_topnav %>
-        <div class="instui-topnav-container">
-          <div id="react-instui-topnav"></div>
-        </div>
-      <% else %>
+    <% if @instui_topnav %>
+      <div class="instui-topnav-container">
+        <div id="react-instui-topnav"></div>
+      </div>
+    <% else %>
+      <% if crumbs.length > 1 %>
         <div class="ic-app-nav-toggle-and-crumbs no-print">
           <% if @show_left_side %>
             <button type="button" id="courseMenuToggle" class="Button Button--link ic-app-course-nav-toggle" aria-live="polite" aria-label="<%= subnav_menu_text %>">
@@ -146,7 +151,7 @@
               <div id="immersive_reader_mount_point"></div>
             <% end %>
             <% if show_student_view_button? %>
-              <%= link_to course_student_view_path(course_id: @context, redirect_to_referer: 1), :class => "btn btn-top-nav", :id => "easy_student_view", :method => :post do %>
+              <%= link_to course_student_view_path(course_id: @context, redirect_to_referer: 1), :class => "btn btn-top-nav", :id => "easy_student_view", :method => :post, :role => "complementary", :"aria-label" => t("View as Student") do %>
                 <i class="icon-student-view"></i> <%= t('View as Student') %>
               <% end %>
             <% end %>

@@ -25,8 +25,9 @@ import {Avatar} from '@instructure/ui-avatar'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconEditLine, IconTrashLine} from '@instructure/ui-icons'
 import DateHelper from '@canvas/datetime/dateHelper'
-import {truncateText} from '@canvas/util/TextHelper'
+import {truncateText, containsHtmlTags, formatMessage} from '@canvas/util/TextHelper'
 import SubmissionCommentUpdateForm from './SubmissionCommentUpdateForm'
+import sanitizeHtml from 'sanitize-html-with-tinymce'
 
 const I18n = useI18nScope('gradebook')
 
@@ -92,10 +93,17 @@ export default class SubmissionCommentListItem extends React.Component<Props> {
       )
     }
 
+    const formattedComment = containsHtmlTags(this.props.comment)
+      ? sanitizeHtml(this.props.comment)
+      : formatMessage(this.props.comment)
     return (
       <div>
         <Text size="small" lineHeight="condensed">
-          <p style={{margin: '0 0 0.75rem'}}>{this.props.comment}</p>
+          <p
+            style={{margin: '0 0 0.75rem'}}
+            data-testid="comment"
+            dangerouslySetInnerHTML={{__html: formattedComment}}
+          />
         </Text>
       </div>
     )

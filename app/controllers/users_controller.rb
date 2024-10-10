@@ -227,6 +227,7 @@ class UsersController < ApplicationController
                                                        masquerade]
   skip_before_action :load_user, only: [:create_self_registered_user]
   before_action :require_self_registration, only: %i[new create create_self_registered_user]
+  before_action :check_limited_access_for_students, only: %i[create_file set_custom_color]
 
   def grades
     @user = User.where(id: params[:user_id]).first if params[:user_id].present?
@@ -282,9 +283,11 @@ class UsersController < ApplicationController
     else
       grade_data[:grade] = enrollment.effective_current_score(opts)
     end
+    grading_standard = enrollment.course.grading_standard_or_default
     grade_data[:restrict_quantitative_data] = enrollment.course.restrict_quantitative_data?(@current_user)
-    grade_data[:grading_scheme] = enrollment.course.grading_standard_or_default.data
-    grade_data[:points_based_grading_scheme] = enrollment.course.grading_standard_or_default.points_based?
+    grade_data[:grading_scheme] = grading_standard.data
+    grade_data[:points_based_grading_scheme] = grading_standard.points_based?
+    grade_data[:scaling_factor] = grading_standard.scaling_factor
 
     render json: grade_data
   end
@@ -671,7 +674,7 @@ class UsersController < ApplicationController
   def cached_upcoming_events(user)
     Rails.cache.fetch(["cached_user_upcoming_events", user].cache_key,
                       expires_in: 3.minutes) do
-      user.upcoming_events context_codes: ([user.asset_string] + user.cached_context_codes)
+      user.upcoming_events context_codes: ([user.asset_string] + user.cached_context_codes), include_sub_assignments: @domain_root_account.feature_enabled?(:discussion_checkpoints)
     end
   end
 
@@ -715,7 +718,7 @@ class UsersController < ApplicationController
       end
 
       if (@show_recent_feedback = @user.student_enrollments.active.exists?)
-        @recent_feedback = @user.recent_feedback(course_ids:) || []
+        @recent_feedback = @user.recent_feedback(course_ids:, exclude_parent_assignment_submissions: @domain_root_account.feature_enabled?(:discussion_checkpoints)) || []
       end
     end
 
@@ -1226,6 +1229,7 @@ class UsersController < ApplicationController
       planner_overrides = includes.include?("planner_overrides")
       include_course = includes.include?("course")
       ActiveRecord::Associations.preload(assignments, :context) if include_course
+      DatesOverridable.preload_override_data_for_objects(assignments)
 
       json = assignments.map do |as|
         assmt_json = assignment_json(as, user, session, include_planner_override: planner_overrides)
@@ -1242,7 +1246,7 @@ class UsersController < ApplicationController
       return render(json: { ignored: false }, status: :bad_request)
     end
 
-    @current_user.ignore_item!(ActiveRecord::Base.find_by_asset_string(params[:asset_string], ["Assignment", "AssessmentRequest", "Quizzes::Quiz"]),
+    @current_user.ignore_item!(ActiveRecord::Base.find_by_asset_string(params[:asset_string], ["Assignment", "AssessmentRequest", "Quizzes::Quiz", "SubAssignment"]),
                                params[:purpose],
                                params[:permanent] == "1")
     render json: { ignored: true }
@@ -1558,7 +1562,7 @@ class UsersController < ApplicationController
     @lti_launch.resource_url = @tool.login_or_launch_url(extension_type: placement)
     @lti_launch.link_text = @tool.label_for(placement, I18n.locale)
     @lti_launch.analytics_id = @tool.tool_id
-    Lti::LogService.new(tool: @tool, context: @domain_root_account, user: @current_user, session_id: session[:session_id], placement:, launch_type: :direct_link).call
+    Lti::LogService.new(tool: @tool, context: @domain_root_account, user: @current_user, session_id: session[:session_id], placement:, launch_type: :direct_link, launch_url: @lti_launch.resource_url).call
 
     set_active_tab @tool.asset_string
     add_crumb(@current_user.short_name, user_profile_path(@current_user))
@@ -2117,6 +2121,10 @@ class UsersController < ApplicationController
   #   Sets a bio on the user profile. (See {api:ProfileController#settings Get user profile}.)
   #   Profiles must be enabled on the root account.
   #
+  # @argument user[pronunciation] [String]
+  #   Sets name pronunciation on the user profile. (See {api:ProfileController#settings Get user profile}.)
+  #   Profiles and name pronunciation must be enabled on the root account.
+  #
   # @argument user[pronouns] [String]
   #   Sets pronouns on the user profile.
   #   Passing an empty string will empty the user's pronouns
@@ -2163,6 +2171,7 @@ class UsersController < ApplicationController
     if @domain_root_account.enable_profiles?
       managed_attributes << :bio if @user.grants_right?(@current_user, :manage_user_details)
       managed_attributes << :title if @user.grants_right?(@current_user, :rename)
+      managed_attributes << :pronunciation if @domain_root_account.enable_name_pronunciation? && @user.grants_right?(@current_user, :manage_user_details)
     end
 
     can_admin_change_pronouns = @domain_root_account.can_add_pronouns? && @user.grants_right?(@current_user, :manage_user_details)
@@ -2215,13 +2224,20 @@ class UsersController < ApplicationController
 
     includes = %w[locale avatar_url email time_zone]
     includes << "avatar_state" if @user.grants_right?(@current_user, :manage_user_details)
+
     if (title = user_params.delete(:title))
       @user.profile.title = title
       includes << "title"
     end
+
     if (bio = user_params.delete(:bio))
       @user.profile.bio = bio
       includes << "bio"
+    end
+
+    if (pronunciation = user_params.delete(:pronunciation))
+      @user.profile.pronunciation = pronunciation
+      includes << "pronunciation"
     end
 
     if (pronouns = user_params.delete(:pronouns))
@@ -2304,11 +2320,17 @@ class UsersController < ApplicationController
 
   # @API Log users out of all mobile apps
   #
-  # Permanently expires any active mobile sessions for _all_ users, forcing them to re-authorize.
+  # Permanently expires any active mobile sessions, forcing them to re-authorize.
+  #
+  # The route that takes a user id will expire mobile sessions for that user.
+  # The route that doesn't take a user id will expire mobile sessions for *all* users
+  # in the institution.
+  #
   def expire_mobile_sessions
     return unless authorized_action(@domain_root_account, @current_user, :manage_user_logins)
 
-    AccessToken.delay_if_production.invalidate_mobile_tokens!(@domain_root_account)
+    user = api_find(User, params[:id]) if params.key?(:id)
+    AccessToken.delay_if_production.invalidate_mobile_tokens!(@domain_root_account, user:)
 
     render json: "ok"
   end
@@ -2933,20 +2955,6 @@ class UsersController < ApplicationController
       next unless (student = data[submission.user_id])
 
       student[:ungraded] << submission
-    end
-
-    if course.root_account.enable_user_notes?
-      data.each_value { |v| v[:last_user_note] = nil }
-      # find all last user note times in one query
-      note_dates = UserNote.active
-                           .group(:user_id)
-                           .where("created_by_id = ? AND user_id IN (?)", teacher, ids)
-                           .maximum(:created_at)
-      note_dates.each do |user_id, date|
-        next unless (student = data[user_id])
-
-        student[:last_user_note] = date
-      end
     end
 
     Canvas::ICU.collate_by(data.values) { |e| e[:enrollment].user.sortable_name }

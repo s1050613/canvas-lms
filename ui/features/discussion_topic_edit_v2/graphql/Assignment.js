@@ -57,11 +57,18 @@ export const Assignment = {
       }
       hasSubAssignments
       checkpoints {
-        dueAt
+        dueAt(applyOverrides: false)
+        unlockAt(applyOverrides: false)
+        lockAt(applyOverrides: false)
         name
         onlyVisibleToOverrides
         pointsPossible
         tag
+        assignmentOverrides {
+          nodes {
+            ...AssignmentOverride
+          }
+        }
       }
     }
     ${AssignmentGroup.fragment}
@@ -95,6 +102,8 @@ export const Assignment = {
     checkpoints: arrayOf(
       shape({
         dueAt: string,
+        unlockAt: string,
+        lockAt: string,
         name: string,
         onlyVisibleToOverrides: bool,
         pointsPossible: number,

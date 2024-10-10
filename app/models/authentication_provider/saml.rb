@@ -25,7 +25,7 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
     "saml"
   end
 
-  def self.enabled?(_account = nil)
+  def self.enabled?(_account = nil, _user = nil)
     true
   end
 
@@ -211,9 +211,8 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
   end
 
   def login_attribute
-    return "NameID" unless read_attribute(:login_attribute)
+    return "NameID" unless (result = super)
 
-    result = super
     # backcompat
     return "NameID" if result == "nameid"
     return "eduPersonPrincipalName" if result == "eduPersonPrincipalName_stripped"
@@ -223,7 +222,7 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
 
   def strip_domain_from_login_attribute?
     # backcompat
-    return true if read_attribute(:login_attribute) == "eduPersonPrincipalName_stripped"
+    return true if self["login_attribute"] == "eduPersonPrincipalName_stripped"
 
     !!settings["strip_domain_from_login_attribute"]
   end

@@ -30,12 +30,19 @@ type QTIZipImporterProps = {
   onSubmit: onSubmitMigrationFormCallback
   onCancel: () => void
   fileUploadProgress: number | null
+  isSubmitting: boolean
 }
 
-const QTIZipImporter = ({onSubmit, onCancel, fileUploadProgress}: QTIZipImporterProps) => {
+const QTIZipImporter = ({
+  onSubmit,
+  onCancel,
+  fileUploadProgress,
+  isSubmitting,
+}: QTIZipImporterProps) => {
   const [file, setFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<boolean>(false)
   const [questionBankSettings, setQuestionBankSettings] = useState<QuestionBankSettings | null>()
+  const [isQuestionBankDisabled, setIsQuestionBankDisabled] = useState(false)
   const [questionBankError, setQuestionBankError] = useState<boolean>(false)
 
   const handleSubmit = useCallback(
@@ -65,7 +72,11 @@ const QTIZipImporter = ({onSubmit, onCancel, fileUploadProgress}: QTIZipImporter
 
   return (
     <>
-      <MigrationFileInput fileUploadProgress={fileUploadProgress} onChange={setFile} />
+      <MigrationFileInput
+        fileUploadProgress={fileUploadProgress}
+        onChange={setFile}
+        isSubmitting={isSubmitting}
+      />
       {fileError && (
         <p>
           <Text color="danger">{I18n.t('You must select a file to import content from')}</Text>
@@ -74,13 +85,18 @@ const QTIZipImporter = ({onSubmit, onCancel, fileUploadProgress}: QTIZipImporter
       <QuestionBankSelector
         onChange={setQuestionBankSettings}
         questionBankError={questionBankError}
+        disable={isSubmitting || isQuestionBankDisabled}
+        notCompatible={isQuestionBankDisabled}
+        questionBankSettings={questionBankSettings}
       />
       <CommonMigratorControls
         fileUploadProgress={fileUploadProgress}
+        isSubmitting={isSubmitting}
         canImportAsNewQuizzes={ENV.NEW_QUIZZES_IMPORT}
         canOverwriteAssessmentContent={true}
         onSubmit={handleSubmit}
         onCancel={onCancel}
+        setIsQuestionBankDisabled={setIsQuestionBankDisabled}
       />
     </>
   )

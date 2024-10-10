@@ -25,12 +25,19 @@ import {Text} from '@instructure/ui-text'
 import {TextInput} from '@instructure/ui-text-input'
 import {HorizontalButtonDisplay} from './HorizontalButtonDisplay'
 import {VerticalButtonDisplay} from './VerticalButtonDisplay'
-import type {RubricAssessmentData, RubricCriterion, UpdateAssessmentData} from '../types/rubric'
+import type {
+  RubricAssessmentData,
+  RubricCriterion,
+  RubricRating,
+  UpdateAssessmentData,
+} from '../types/rubric'
 import {TextArea} from '@instructure/ui-text-area'
 import {Checkbox} from '@instructure/ui-checkbox'
 import {CommentLibrary} from './CommentLibrary'
 import {CriteriaReadonlyComment} from './CriteriaReadonlyComment'
-import {htmlEscapeCriteriaLongDescription} from './utils/rubricUtils'
+import {findCriterionMatchingRatingId, htmlEscapeCriteriaLongDescription} from './utils/rubricUtils'
+import {possibleString} from '../Points'
+import {OutcomeTag} from './OutcomeTag'
 
 const I18n = useI18nScope('rubrics-assessment-tray')
 
@@ -76,6 +83,7 @@ export const ModernView = ({
             isPreviewMode={isPreviewMode}
             isPeerReview={isPeerReview}
             ratingOrder={ratingOrder}
+            criterionUseRange={criterion.criterionUseRange}
             criterionAssessment={criterionAssessment}
             selectedViewMode={selectedViewMode}
             rubricSavedComments={rubricSavedComments?.[criterion.id] ?? []}
@@ -96,6 +104,7 @@ type CriterionRowProps = {
   isPeerReview: boolean
   isFreeFormCriterionComments: boolean
   ratingOrder: string
+  criterionUseRange: boolean
   criterionAssessment?: RubricAssessmentData
   selectedViewMode: ModernViewModes
   rubricSavedComments: string[]
@@ -109,20 +118,23 @@ export const CriterionRow = ({
   isPeerReview,
   isFreeFormCriterionComments,
   ratingOrder,
+  criterionUseRange,
   criterionAssessment,
   selectedViewMode,
   rubricSavedComments,
   onUpdateAssessmentData,
 }: CriterionRowProps) => {
   const {ratings} = criterion
-  const selectedRatingIndex = criterion.ratings.findIndex(
-    rating => rating.points === criterionAssessment?.points
-  )
 
   const [pointsInput, setPointsInput] = useState<string>()
-  const [selectedRatingDescription, setSelectedRatingDescription] = useState<string>()
   const [commentText, setCommentText] = useState<string>(criterionAssessment?.comments ?? '')
   const [isSaveCommentChecked, setIsSaveCommentChecked] = useState(false)
+
+  const selectedRatingId = findCriterionMatchingRatingId(
+    criterion.ratings,
+    criterion.criterionUseRange,
+    criterionAssessment
+  )
 
   useEffect(() => {
     setCommentText(criterionAssessment?.comments ?? '')
@@ -138,30 +150,30 @@ export const CriterionRow = ({
     onUpdateAssessmentData(updatedCriterionAssessment)
   }
 
-  const selectRating = (index: number) => {
-    if (selectedRatingIndex === index) {
-      updateAssessmentData({points: undefined})
-      setPoints('')
+  const selectRating = (rating: RubricRating) => {
+    if (selectedRatingId === rating.id) {
+      updateAssessmentData({points: undefined, ratingId: undefined})
       return
     }
 
-    const selectedRating = ratings[index]
-    setPoints(selectedRating?.points.toString() ?? '')
-    setSelectedRatingDescription(selectedRating?.description)
+    updateAssessmentData({
+      ratingId: rating.id,
+      points: rating.points,
+    })
   }
 
   const setPoints = (value: string) => {
     const points = Number(value)
 
     if (!value.trim().length || Number.isNaN(points)) {
-      updateAssessmentData({points: undefined})
+      updateAssessmentData({points: undefined, ratingId: undefined})
       setPointsInput('')
       return
     }
 
     updateAssessmentData({
       points,
-      description: selectedRatingDescription,
+      ratingId: undefined,
     })
     setPointsInput(points.toString())
   }
@@ -173,8 +185,9 @@ export const CriterionRow = ({
           isPreviewMode={isPreviewMode}
           ratings={ratings}
           ratingOrder={ratingOrder}
-          selectedRatingIndex={selectedRatingIndex}
+          selectedRatingId={selectedRatingId}
           onSelectRating={selectRating}
+          criterionUseRange={criterionUseRange}
         />
       )
     }
@@ -184,56 +197,77 @@ export const CriterionRow = ({
         isPreviewMode={isPreviewMode}
         ratings={ratings}
         ratingOrder={ratingOrder}
-        selectedRatingIndex={selectedRatingIndex}
+        selectedRatingId={selectedRatingId}
         onSelectRating={selectRating}
+        criterionUseRange={criterionUseRange}
       />
     )
   }
 
+  const pointsInputValue = pointsInput?.toString() ?? ''
+  const totalPointsValue = criterion.points.toString()
+  const instructorPointsText = I18n.t(
+    'Instructor Points %{pointsInputValue} out of %{totalPointsValue}',
+    {pointsInputValue, totalPointsValue}
+  )
+
   return (
     <View as="div" margin="0 0 small 0">
       {!hidePoints && (
-        <Flex direction="row-reverse" data-testid="modern-view-out-of-points">
-          <Flex.Item margin={isPreviewMode ? '0' : '0 0 0 x-small'}>
-            <Text size="small" weight="bold">
-              /{criterion.points}
-            </Text>
+        <Flex data-testid="modern-view-out-of-points">
+          <Flex.Item shouldGrow={true}>
+            {criterion.learningOutcomeId && <OutcomeTag displayName={criterion.description} />}
           </Flex.Item>
           <Flex.Item margin={isPreviewMode ? '0 0 0 x-small' : '0'}>
             {isPreviewMode ? (
-              <Text size="small" weight="bold">
-                {pointsInput?.toString() ?? ''}
+              <Text size="small" weight="bold" aria-label={instructorPointsText}>
+                {pointsInputValue}
               </Text>
+            ) : criterion.ignoreForScoring ? (
+              <Text>--</Text>
             ) : (
               <TextInput
-                renderLabel={
-                  <ScreenReaderContent>{I18n.t('Instructor Points')}</ScreenReaderContent>
-                }
+                autoComplete="off"
+                renderLabel={<ScreenReaderContent>{instructorPointsText}</ScreenReaderContent>}
                 placeholder="--"
-                width="2.688rem"
+                width="3.375rem"
                 height="2.375rem"
-                value={pointsInput?.toString() ?? ''}
-                onChange={(_e, value) => {
-                  setPoints(value)
-                }}
+                data-testid={`criterion-score-${criterion.id}`}
+                value={pointsInputValue}
+                onChange={e => setPointsInput(e.target.value)}
+                onBlur={e => setPoints(e.target.value)}
               />
             )}
+          </Flex.Item>
+          <Flex.Item margin={isPreviewMode ? '0' : '0 0 0 x-small'}>
+            <Text size="small" weight="bold" aria-hidden={true}>
+              /{criterion.points}
+            </Text>
           </Flex.Item>
         </Flex>
       )}
       <View as="div">
         <Text size="medium" weight="bold">
-          {criterion.description}
+          {criterion.outcome?.displayName || criterion.description}
         </Text>
       </View>
       <View as="div" margin="xx-small 0 0 0" themeOverride={{marginXxSmall: '.25rem'}}>
         <Text
           size="small"
           weight="normal"
-          themeOverride={{fontSizeXSmall: '0.875rem'}}
+          themeOverride={{fontSizeXSmall: '0.875rem', paragraphMargin: 0}}
           dangerouslySetInnerHTML={htmlEscapeCriteriaLongDescription(criterion)}
         />
       </View>
+      {criterion.learningOutcomeId && (
+        <View as="div" margin="xx-small 0 0 0">
+          <Text>
+            {I18n.t('Threshold: %{threshold}', {
+              threshold: possibleString(criterion.masteryPoints),
+            })}
+          </Text>
+        </View>
+      )}
       <View as="div" margin="small 0 0 0">
         {!isFreeFormCriterionComments && renderButtonDisplay()}
       </View>
@@ -264,16 +298,21 @@ export const CriterionRow = ({
               overflowX="hidden"
               overflowY="hidden"
             >
-              <TextArea
-                label={<ScreenReaderContent>{I18n.t('Criterion Comment')}</ScreenReaderContent>}
-                readOnly={isPreviewMode}
-                data-testid={`free-form-comment-area-${criterion.id}`}
-                width="100%"
-                height="38px"
-                value={commentText}
-                onChange={e => setCommentText(e.target.value)}
-                onBlur={e => updateAssessmentData({comments: e.target.value})}
-              />
+              {isPreviewMode ? (
+                <View as="div" margin="0 0 0 0" height="48px">
+                  <Text>{commentText}</Text>
+                </View>
+              ) : (
+                <TextArea
+                  label={<ScreenReaderContent>{I18n.t('Criterion Comment')}</ScreenReaderContent>}
+                  data-testid={`free-form-comment-area-${criterion.id}`}
+                  width="100%"
+                  height="38px"
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  onBlur={e => updateAssessmentData({comments: e.target.value})}
+                />
+              )}
             </Flex.Item>
             {!isPeerReview && !isPreviewMode && (
               <Flex.Item margin="medium 0 x-small 0" shouldGrow={true}>
@@ -308,13 +347,14 @@ export const CriterionRow = ({
                   onChange={e => setCommentText(e.target.value)}
                   onBlur={() => updateAssessmentData({comments: commentText})}
                   placeholder={I18n.t('Leave a comment')}
+                  data-testid={`comment-text-area-${criterion.id}`}
                 />
               )}
             </Flex.Item>
           </Flex>
         )}
       </View>
-      {displayHr && <View as="hr" margin="medium 0" />}
+      {displayHr && <View as="hr" margin="medium 0" aria-hidden={true} />}
     </View>
   )
 }

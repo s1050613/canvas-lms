@@ -42,6 +42,7 @@ describe('DiscussionsAttachment', () => {
   const openMock = jest.fn()
   beforeAll(() => {
     delete window.location
+    window.location = {search: ''}
     window.open = openMock
     window.ENV = {
       course_id: '1',
@@ -89,12 +90,22 @@ describe('DiscussionsAttachment', () => {
     })
     it('updates the attachment', async () => {
       const container = setup(
-        defaultProps(),
+        defaultProps({
+          discussionEntryOverrides: {
+            quotedEntry: {
+              _id: '1337',
+              message: 'Best Paladin in the world',
+            },
+          },
+        }),
         updateDiscussionEntryMock({
           discussionEntryId: 'DiscussionEntry-default-mock',
           message: '<p>This is the parent reply</p>',
           fileId: null,
           removeAttachment: true,
+          quotedEntryId: '1337',
+          // Since we set up the mock with the quotedEntryId, the test will only pass if the mutation variables
+          // match the id, else we'd get an error
         })
       )
 

@@ -297,13 +297,12 @@ describe Quizzes::Quiz do
   it_behaves_like "Canvas::DraftStateValidations"
 
   it "infers the times if none given" do
-    q = factory_with_protected_attributes(@course.quizzes,
-                                          title: "new quiz",
-                                          due_at: "Sep 3 2008 12:00am",
-                                          lock_at: "Sep 3 2008 12:00am",
-                                          unlock_at: "Sep 3 2008 12:00am",
-                                          quiz_type: "assignment",
-                                          workflow_state: "available")
+    q = @course.quizzes.create!(title: "new quiz",
+                                due_at: "Sep 3 2008 12:00am",
+                                lock_at: "Sep 3 2008 12:00am",
+                                unlock_at: "Sep 3 2008 12:00am",
+                                quiz_type: "assignment",
+                                workflow_state: "available")
     due_at = q.due_at
     expect(q.due_at).to eq Time.parse("Sep 3 2008 12:00am UTC")
     lock_at = q.lock_at
@@ -622,7 +621,7 @@ describe Quizzes::Quiz do
     q.generate_quiz_data
     q.save
     expect(q.quiz_data).not_to be_nil
-    data = q.quiz_data rescue nil
+    data = q.quiz_data
     expect(data).not_to be_nil
   end
 
@@ -2276,7 +2275,7 @@ describe Quizzes::Quiz do
       end
     end
 
-    context "#unlock_at time has not yet occurred" do
+    describe "#unlock_at time has not yet occurred" do
       before do
         quiz.unlock_at = 1.hour.from_now
       end
@@ -2288,7 +2287,7 @@ describe Quizzes::Quiz do
       it { is_expected.to have_key :unlock_at }
     end
 
-    context "#unlock_at time has passed" do
+    describe "#unlock_at time has passed" do
       before do
         quiz.unlock_at = 1.hour.ago
       end
@@ -2296,7 +2295,7 @@ describe Quizzes::Quiz do
       it { is_expected.to be false }
     end
 
-    context "#lock_at time as passed" do
+    describe "#lock_at time as passed" do
       before do
         quiz.lock_at = 1.hour.ago
       end
@@ -2308,7 +2307,7 @@ describe Quizzes::Quiz do
       it { is_expected.to have_key :lock_at }
     end
 
-    context "#lock_at time has not yet occurred" do
+    describe "#lock_at time has not yet occurred" do
       before do
         quiz.lock_at = 1.hour.from_now
       end

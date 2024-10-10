@@ -62,7 +62,6 @@ describe "scheduler" do
     end
 
     it "shows appointment slots on calendar in Find Appointment mode", priority: "1" do
-      skip "FOO-3801 (10/7/2023)"
       get "/calendar2"
       open_select_courses_modal(@course1.name)
       # the order they come back could vary depending on whether they split
@@ -130,6 +129,7 @@ describe "scheduler" do
     end
 
     it "does not allow scheduling multiple appointment slots when it is restricted", priority: "1" do
+      skip("LX-2053")
       reserve_appointment_for(@student1, @student1, @app1)
       get "/calendar2"
       open_select_courses_modal(@course1.name)

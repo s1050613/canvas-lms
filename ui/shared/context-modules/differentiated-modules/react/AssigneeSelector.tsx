@@ -17,7 +17,7 @@
  */
 
 import CanvasMultiSelect, {type Size} from '@canvas/multi-select/react'
-import React, {type ReactElement, useEffect, useRef, useState} from 'react'
+import React, {type ReactElement, useEffect, useRef, useState, useCallback, useMemo} from 'react'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import {Link} from '@instructure/ui-link'
 import {View} from '@instructure/ui-view'
@@ -28,7 +28,9 @@ import {setContainScrollBehavior} from '../utils/assignToHelper'
 import useFetchAssignees from '../utils/hooks/useFetchAssignees'
 import type {FormMessage} from '@instructure/ui-form-field'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
-import {AssigneeOption} from './Item/types'
+import type {AssigneeOption} from './Item/types'
+import type {ItemType} from './types'
+import {Spinner} from '@instructure/ui-spinner'
 
 const {Option: CanvasMultiSelectOption} = CanvasMultiSelect as any
 
@@ -53,6 +55,8 @@ interface Props {
   inputRef?: (inputElement: HTMLInputElement | null) => void
   onBlur?: () => void
   disabledWithGradingPeriod?: boolean
+  disabledOptionIdsRef?: React.MutableRefObject<string[]>
+  itemType?: ItemType
 }
 
 const AssigneeSelector = ({
@@ -74,6 +78,8 @@ const AssigneeSelector = ({
   inputRef,
   onBlur,
   disabledWithGradingPeriod,
+  disabledOptionIdsRef,
+  itemType,
 }: Props) => {
   const listElementRef = useRef<HTMLElement | null>(null)
   const [options, setOptions] = useState<AssigneeOption[]>(defaultValues)
@@ -88,16 +94,17 @@ const AssigneeSelector = ({
     onError,
   })
   const [highlightedOptionId, setHighlightedOptionId] = useState<string | null>(null)
+  const disabledOptions = disabledOptionIdsRef?.current ?? disabledOptionIds
 
   const shouldUpdateOptions = [
     JSON.stringify(allOptions),
-    JSON.stringify(disabledOptionIds),
+    JSON.stringify(disabledOptions),
     JSON.stringify(selectedOptionIds),
   ]
 
   useEffect(() => {
     const newOptions = allOptions.filter(
-      option => selectedOptionIds.includes(option.id) || !disabledOptionIds.includes(option.id)
+      option => selectedOptionIds.includes(option.id) || !disabledOptions.includes(option.id)
     )
     setOptions(newOptions)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -138,17 +145,42 @@ const AssigneeSelector = ({
     )
   }
 
+  const handleFocus = useCallback(() => {
+    const newOptions = allOptions.filter(
+      option => selectedOptionIds.includes(option.id) || !disabledOptions.includes(option.id)
+    )
+    setOptions(newOptions)
+  }, [allOptions, selectedOptionIds, disabledOptions])
+
+  const shouldDisableSelector = useMemo(() => {
+    if (!(itemType === 'discussion' || itemType === 'discussion_topic')) return false
+    return ENV?.current_user_is_student
+  }, [itemType])
+
   return (
     <>
       <CanvasMultiSelect
-        disabled={disabledWithGradingPeriod}
+        disabled={disabledWithGradingPeriod || shouldDisableSelector}
         data-testid="assignee_selector"
         messages={messages}
         label={showVisualLabel ? label : <ScreenReaderContent>{label}</ScreenReaderContent>}
         size={size}
         selectedOptionIds={selectedOptionIds}
         onChange={handleChange}
-        renderAfterInput={<></>}
+        renderAfterInput={
+          isLoading ? (
+            <Spinner
+              renderTitle={
+                <ScreenReaderContent>
+                  {I18n.t('Loading student, section, and group data')}
+                </ScreenReaderContent>
+              }
+              size="x-small"
+            />
+          ) : (
+            <></>
+          )
+        }
         customOnInputChange={handleInputChange}
         visibleOptionsCount={10}
         isLoading={isLoading}
@@ -156,6 +188,7 @@ const AssigneeSelector = ({
         setInputRef={inputRef}
         listRef={e => (listElementRef.current = e)}
         customOnRequestShowOptions={handleShowOptions}
+        onFocus={handleFocus}
         customRenderBeforeInput={tags =>
           tags?.map((tag: ReactElement) => (
             <View

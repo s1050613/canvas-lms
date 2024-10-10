@@ -65,6 +65,7 @@ class Pseudonym < ActiveRecord::Base
             inclusion: { in: %w[administrative observer staff student student_other teacher] }
 
   before_save :set_password_changed
+  before_save :clear_login_attribute_if_needed
   before_validation :infer_defaults, :verify_unique_sis_user_id, :verify_unique_integration_id
   after_save :update_account_associations_if_account_changed
   has_a_broadcast_policy
@@ -85,16 +86,9 @@ class Pseudonym < ActiveRecord::Base
               if: ->(p) { (p.unique_id_changed? || p.workflow_state_changed?) && p.active? }
             }
 
-  validates :password,
-            confirmation: true,
-            if: :require_password?
-
-  validates_each :password,
-                 if: :require_password?,
-                 &Canvas::PasswordPolicy.method(:validate)
-  validates :password_confirmation,
-            presence: true,
-            if: :require_password?
+  validates :password, confirmation: true, if: :require_password?
+  validates_each :password, if: :require_password?, &:validate_password
+  validates :password_confirmation, presence: true, if: :require_password?
 
   class << self
     # we know these fields, and don't want authlogic to connect to the db at boot
@@ -130,6 +124,10 @@ class Pseudonym < ActiveRecord::Base
     # is true. just check if the pw has changed or crypted_password_field is
     # blank.
     password_changed? || (send(crypted_password_field).blank? && sis_ssha.blank?) || @require_password
+  end
+
+  def validate_password(attr, val)
+    Canvas::Security::PasswordPolicy.validate(self, attr, val)
   end
 
   acts_as_list scope: :user
@@ -272,6 +270,10 @@ class Pseudonym < ActiveRecord::Base
 
   def set_password_changed
     @password_changed = password && password_confirmation == password
+  end
+
+  def clear_login_attribute_if_needed
+    self.login_attribute = nil if authentication_provider_id.nil? && will_save_change_to_authentication_provider_id?
   end
 
   def password=(new_pass)
@@ -734,5 +736,34 @@ class Pseudonym < ActiveRecord::Base
     redis_key = cas_ticket_key(ticket)
 
     Canvas.redis.set(redis_key, true, ex: CAS_TICKET_TTL)
+  end
+
+  def self.oidc_session_key(*subkeys)
+    ["oidc_session_slo", Digest::SHA512.new.update(subkeys.cache_key).hexdigest].cache_key
+  end
+
+  def self.oidc_session_expired?(session)
+    return false unless Canvas.redis_enabled?
+
+    iss = session[:oidc_id_token_iss]
+    sid = session[:oidc_id_token_sid]
+    sub = session[:oidc_id_token_sub]
+    return false unless iss && (sid || sub)
+
+    keys = [sid, sub].compact.map do |key|
+      oidc_session_key("sid", iss, key)
+    end
+    keys.any? do |key|
+      !Canvas.redis.get("oidc_session_slo_#{key}", failsafe: nil).nil?
+    end
+  end
+
+  def self.expire_oidc_session(logout_token)
+    key = if logout_token["sid"]
+            oidc_session_key("sid", logout_token["iss"], logout_token["sid"])
+          else
+            oidc_session_key("sid", logout_token["iss"], logout_token["sub"])
+          end
+    Canvas.redis.set("oidc_session_slo_#{key}", true, ex: CAS_TICKET_TTL)
   end
 end

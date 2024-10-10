@@ -31,9 +31,7 @@ import {
   IconDuplicateLine,
   IconEditLine,
   IconLockLine,
-  IconMarkAsReadLine,
   IconMoreLine,
-  IconNextUnreadLine,
   IconNoSolid,
   IconPeerReviewLine,
   IconRubricSolid,
@@ -46,6 +44,7 @@ import {IconButton} from '@instructure/ui-buttons'
 import {Menu} from '@instructure/ui-menu'
 import {Responsive} from '@instructure/ui-responsive'
 import {Text} from '@instructure/ui-text'
+import {ReadIcon, UnreadIcon} from '../ThreadingToolbar/MarkAsReadIcons'
 
 const I18n = useI18nScope('discussion_posts')
 
@@ -64,6 +63,8 @@ export function PostToolbar({repliesCount, unreadCount, ...props}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.discussionTopic?.groupSet]) // disabling to use safe nav in dependencies
 
+  const subscriptionDisabled = props.discussionTopic?.subscriptionDisabledForUser
+
   return (
     <Responsive
       match="media"
@@ -79,7 +80,7 @@ export function PostToolbar({repliesCount, unreadCount, ...props}) {
         },
       }}
       render={responsiveProps => (
-        <Flex justifyItems={repliesCount > 0 ? responsiveProps.justifyItems : 'end'}>
+        <Flex justifyItems={repliesCount > 0 ? responsiveProps.justifyItems : 'end'} margin="0 0 0 x-small">
           {repliesCount > 0 && (
             <Flex.Item margin="0 x-small 0 0">
               <Text weight="normal" size={responsiveProps.textSize}>
@@ -110,14 +111,20 @@ export function PostToolbar({repliesCount, unreadCount, ...props}) {
                 <Flex.Item>
                   <span className="discussion-post-subscribe">
                     <ToggleButton
+                      disabled={subscriptionDisabled}
                       isEnabled={props.isSubscribed}
                       enabledIcon={<IconBookmarkSolid />}
                       disabledIcon={<IconBookmarkLine />}
                       enabledTooltipText={I18n.t('Unsubscribe')}
-                      disabledTooltipText={I18n.t('Subscribe')}
+                      disabledTooltipText={
+                        subscriptionDisabled ? I18n.t('Reply to subscribe') : I18n.t('Subscribe')
+                      }
                       enabledScreenReaderLabel={I18n.t('Subscribed')}
-                      disabledScreenReaderLabel={I18n.t('Unsubscribed')}
+                      disabledScreenReaderLabel={
+                        subscriptionDisabled ? I18n.t('Reply to subscribe') : I18n.t('Unsubscribed')
+                      }
                       onClick={props.onToggleSubscription}
+                      interaction={subscriptionDisabled ? 'disabled' : 'enabled'}
                     />
                   </span>
                 </Flex.Item>
@@ -168,7 +175,7 @@ const getMenuConfigs = props => {
   if (props.onReadAll) {
     options.push({
       key: 'read-all',
-      icon: <IconMarkAsReadLine />,
+      icon: <ReadIcon />,
       label: I18n.t('Mark All as Read'),
       selectionCallback: props.onReadAll,
     })
@@ -176,7 +183,7 @@ const getMenuConfigs = props => {
   if (props.onUnreadAll) {
     options.push({
       key: 'unread-all',
-      icon: <IconNextUnreadLine />,
+      icon: <UnreadIcon />,
       label: I18n.t('Mark All as Unread'),
       selectionCallback: props.onUnreadAll,
     })

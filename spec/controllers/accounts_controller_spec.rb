@@ -269,6 +269,67 @@ describe AccountsController do
       expect(@account.settings[:app_center_access_token]).to eq access_token
     end
 
+    it "does not clear 'app_center_access_token'" do
+      account_with_admin_logged_in
+      @account = @account.sub_accounts.create!
+      access_token = @account.settings[:app_center_access_token]
+      post "update", params: { id: @account.id,
+                               account: {
+                                 settings: {
+                                   setting: :set
+                                 }
+                               } }
+      @account.reload
+      expect(@account.settings[:app_center_access_token]).to eq access_token
+    end
+
+    context "when user does not have manage LTI permissions" do
+      let(:role_changes) do
+        {
+          manage_lti_add: false,
+          manage_lti_edit: false,
+          manage_lti_delete: false,
+          lti_add_edit: false,
+        }
+      end
+
+      before do
+        account_with_admin_logged_in
+        account_admin_user_with_role_changes(user: @admin, role_changes:)
+      end
+
+      it "does not update 'app_center_access_token'" do
+        @account = @account.sub_accounts.create!
+        access_token = SecureRandom.uuid
+        post "update", params: { id: @account.id,
+                                 account: {
+                                   settings: {
+                                     app_center_access_token: access_token
+                                   }
+                                 } }
+        @account.reload
+        expect(@account.settings[:app_center_access_token]).to be_nil
+      end
+
+      context "with flag disabled" do
+        before do
+          @account.disable_feature!(:require_permission_for_app_center_token)
+        end
+
+        it "updates 'app_center_access_token'" do
+          access_token = SecureRandom.uuid
+          post "update", params: { id: @account.id,
+                                   account: {
+                                     settings: {
+                                       app_center_access_token: access_token
+                                     }
+                                   } }
+          @account.reload
+          expect(@account.settings[:app_center_access_token]).to eq access_token
+        end
+      end
+    end
+
     it "updates 'emoji_deny_list'" do
       account_with_admin_logged_in
       @account.allow_feature!(:submission_comment_emojis)
@@ -315,6 +376,37 @@ describe AccountsController do
                                } }
       @account.reload
       expect(@account.settings[:sis_assignment_name_length_input][:value]).to eq "255"
+    end
+
+    it "updates 'show_sections_in_course_tray'" do
+      account_with_admin_logged_in
+      post(
+        :update,
+        params: {
+          id: @account.id,
+          account: {
+            settings: {
+              show_sections_in_course_tray: false
+            }
+          }
+        }
+      )
+      @account.reload
+      expect(@account.settings[:show_sections_in_course_tray]).to be false
+
+      post(
+        :update,
+        params: {
+          id: @account.id,
+          account: {
+            settings: {
+              show_sections_in_course_tray: true
+            }
+          }
+        }
+      )
+      @account.reload
+      expect(@account.settings[:show_sections_in_course_tray]).to be true
     end
 
     it "allows admins to set the sis_source_id on sub accounts" do
@@ -1202,16 +1294,6 @@ describe AccountsController do
       expect(response.body).to match(/"id":"instructor_question"/)
       expect(response.body).to match(/"id":"search_the_canvas_guides"/)
       expect(response.body).to match(/"type":"default"/)
-      expect(response.body).to_not match(/"id":"covid"/)
-    end
-
-    context "with featured_help_links enabled" do
-      it "returns the covid help link as a default" do
-        Account.site_admin.enable_feature!(:featured_help_links)
-        get "help_links", params: { account_id: @account.id }
-        expect(response).to be_successful
-        expect(response.body).to match(/"id":"covid"/)
-      end
     end
 
     it "returns custom help links" do
@@ -1345,6 +1427,24 @@ describe AccountsController do
       expect(response.body).to match(/#{@c2.id}/)
     end
 
+    context "post_manually" do
+      it "gets of a list of courses with post_manually populated if included in the includes param" do
+        admin_logged_in(@account)
+        get "courses_api", params: { account_id: @account.id, include: ["post_manually"] }
+
+        expect(response).to be_successful
+        expect(response.body).to match(/"post_manually":false/)
+      end
+
+      it "gets a list of courses without post_manually populated if it is not included in the includes param" do
+        admin_logged_in(@account)
+        get "courses_api", params: { account_id: @account.id }
+
+        expect(response).to be_successful
+        expect(response.body).not_to match(/"post_manually":false/)
+      end
+    end
+
     it "does not set pagination total_pages/last page link" do
       admin_logged_in(@account)
       get "courses_api", params: { account_id: @account.id, per_page: 1 }
@@ -1371,6 +1471,38 @@ describe AccountsController do
 
       expect(response).to be_successful
       expect(response.body).not_to match(/sections/)
+    end
+
+    context "sort by course status" do
+      before do
+        @c1.workflow_state = "created"
+        @c1.save
+        @c2.workflow_state = "available"
+        @c2.save
+        @c3 = course_factory(account: @account, course_name: "apple", sis_source_id: 30)
+        @c3.workflow_state = "completed"
+        @c3.save
+        admin_logged_in(@account)
+      end
+
+      it "is able to sort by status ascending" do
+        get "courses_api", params: { account_id: @account.id, sort: "course_status", order: "asc" }
+
+        expect(response).to be_successful
+        expect(response.body).to match(/"name":"foo".+"name":"bar".+"name":"apple"/)
+      end
+
+      it "is able to sort by status descending" do
+        get "courses_api", params: { account_id: @account.id, sort: "course_status", order: "desc" }
+
+        expect(response).to be_successful
+        expect(response.body).to match(/"name":"apple".+"name":"bar".+"name":"foo"/)
+      end
+
+      it "works in conjunction with the blueprint option" do
+        get "courses_api", params: { account_id: @account.id, sort: "course_status", order: "desc", blueprint: false }
+        expect(response).to be_successful
+      end
     end
 
     it "is able to sort courses by name ascending" do

@@ -93,7 +93,7 @@ export default function RubricTab(props) {
     freeFormCriterionComments: props.rubric?.free_form_criterion_comments,
   }
 
-  const enhancedRubricsEnabled = ENV.FEATURES.enhanced_rubrics
+  const enhancedRubricsEnabled = ENV.enhanced_rubrics_enabled
   const showEnhancedRubricPeerReview = props.peerReviewModeEnabled && enhancedRubricsEnabled
   const hidePoints = props.rubricAssociation?.hide_points
 
@@ -102,9 +102,28 @@ export default function RubricTab(props) {
       return null
     }
 
+    const rubricCriteria = (props.rubric.criteria ?? []).map(criterion => {
+      return {
+        ...criterion,
+        longDescription: criterion.long_description,
+        criterionUseRange: criterion.criterion_use_range,
+        learningOutcomeId: criterion.learning_outcome_id,
+        ignoreForScoring: criterion.ignore_for_scoring,
+        masteryPoints: criterion.mastery_points,
+        ratings: criterion.ratings.map(rating => {
+          return {
+            ...rating,
+            longDescription: rating.long_description,
+            points: rating.points,
+            criterionId: criterion.id,
+          }
+        }),
+      }
+    })
+
     return enhancedRubricsEnabled ? (
       <TraditionalView
-        criteria={props.rubric.criteria}
+        criteria={rubricCriteria}
         hidePoints={hidePoints}
         isPreviewMode={true}
         isFreeFormCriterionComments={props.rubric.free_form_criterion_comments}
@@ -130,7 +149,7 @@ export default function RubricTab(props) {
     <div data-testid="rubric-tab">
       <View as="div" margin="none none medium">
         {props.peerReviewModeEnabled && !hasSubmittedAssessment && (
-          <Alert variant="info" hasShadow={false}>
+          <Alert variant="info" hasShadow={false} data-testid="peer-review-rubric-alert">
             {I18n.t(
               'Fill out the rubric below after reviewing the student submission to complete this review.'
             )}
@@ -139,7 +158,10 @@ export default function RubricTab(props) {
 
         {showEnhancedRubricPeerReview ? (
           <View as="div" margin="small 0 0 0">
-            <Button onClick={() => setRubricTrayOpen(!rubricTrayOpen)}>
+            <Button
+              onClick={() => setRubricTrayOpen(!rubricTrayOpen)}
+              data-testid="view-rubric-button"
+            >
               {hasSubmittedAssessment ? I18n.t('View Rubric') : I18n.t('Fill Out Rubric')}
             </Button>
             <RubricAssessmentTray
@@ -152,14 +174,14 @@ export default function RubricTab(props) {
               rubric={rubricData}
               onSubmit={assessment => {
                 const updatedState = {
-                  score: assessment.reduce((prev, curr) => prev + curr.points, 0),
+                  score: assessment.reduce((prev, curr) => prev + (curr.points ?? 0), 0),
                   data: assessment.map(criterionAssessment => {
                     const {points} = criterionAssessment
                     const valid = !Number.isNaN(points)
                     return {
                       ...criterionAssessment,
                       points: {
-                        text: points.toString(),
+                        text: points?.toString(),
                         valid,
                         value: points,
                       },

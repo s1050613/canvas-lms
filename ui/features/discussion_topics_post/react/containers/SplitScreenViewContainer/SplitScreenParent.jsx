@@ -46,7 +46,7 @@ import {useUpdateDiscussionThread} from '../../hooks/useUpdateDiscussionThread'
 
 const I18n = useI18nScope('discussion_posts')
 
-export const SplitScreenParent = props => {
+export const SplitScreenParent = ({isEditing, setIsEditing, ...props}) => {
   const [updateSplitScreenViewDeeplyNestedAlert] = useMutation(
     UPDATE_SPLIT_SCREEN_VIEW_DEEPLY_NESTED_ALERT
   )
@@ -57,7 +57,6 @@ export const SplitScreenParent = props => {
 
   const {setOnSuccess} = useContext(AlertManagerContext)
   const {setReplyFromId} = useContext(DiscussionManagerUtilityContext)
-  const [isEditing, setIsEditing] = useState(false)
   const [showReportModal, setShowReportModal] = useState(false)
   const [reportModalIsLoading, setReportModalIsLoading] = useState(false)
   const [reportingError, setReportingError] = useState(false)
@@ -90,6 +89,7 @@ export const SplitScreenParent = props => {
         onClick={() => props.setRCEOpen(true)}
         isReadOnly={props.RCEOpen}
         replyButtonRef={props.replyButtonRef}
+        isSplitScreenView={true}
       />
     )
   }
@@ -111,6 +111,20 @@ export const SplitScreenParent = props => {
         isLiked={!!props.discussionEntry.entryParticipant?.rating}
         likeCount={props.discussionEntry.ratingSum || 0}
         interaction={props.discussionEntry.permissions.rate ? 'enabled' : 'disabled'}
+        isSplitScreenView={true}
+      />
+    )
+  }
+
+  if (!props.discussionEntry.deleted) {
+    threadActions.push(
+      <ThreadingToolbar.MarkAsRead
+        key={`mark-as-read-${props.discussionEntry.id}`}
+        delimiterKey={`mark-as-read-delimiter-${props.discussionEntry.id}`}
+        isRead={props.discussionEntry.entryParticipant?.read}
+        authorName={getDisplayName(props.discussionEntry)}
+        onClick={toggleUnread}
+        isSplitScreenView={true}
       />
     )
   }
@@ -249,10 +263,9 @@ export const SplitScreenParent = props => {
                     anonymousAuthor={props.discussionEntry.anonymousAuthor}
                     message={props.discussionEntry.message}
                     isEditing={isEditing}
-                    onSave={(message, _quotedEntryId, file) => {
+                    onSave={(message, quotedEntryId, file) => {
                       if (props.onSave) {
-                        props.onSave(props.discussionEntry, message, file)
-                        setIsEditing(false)
+                        props.onSave(message, quotedEntryId, file)
                       }
                     }}
                     onCancel={() => {
@@ -266,12 +279,12 @@ export const SplitScreenParent = props => {
                     isUnread={!props.discussionEntry.entryParticipant?.read}
                     isForcedRead={props.discussionEntry.entryParticipant?.forcedReadState}
                     createdAt={props.discussionEntry.createdAt}
-                    updatedAt={props.discussionEntry.updatedAt}
+                    editedAt={props.discussionEntry.editedAt}
                     timingDisplay={DateHelper.formatDatetimeForDiscussions(
                       props.discussionEntry.createdAt
                     )}
                     editedTimingDisplay={DateHelper.formatDatetimeForDiscussions(
-                      props.discussionEntry.updatedAt
+                      props.discussionEntry.editedAt
                     )}
                     lastReplyAtDisplay={DateHelper.formatDatetimeForDiscussions(
                       props.discussionEntry.lastReply?.createdAt

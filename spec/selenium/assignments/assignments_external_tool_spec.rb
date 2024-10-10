@@ -24,8 +24,12 @@ describe "external tool assignments" do
 
   before do
     course_with_teacher_logged_in
-    @t1 = factory_with_protected_attributes(@course.context_external_tools, url: "http://www.justanexamplenotarealwebsite.com/tool1", domain: "justanexamplenotarealwebsite.com", shared_secret: "test123", consumer_key: "test123", name: "tool 1")
-    @t2 = factory_with_protected_attributes(@course.context_external_tools, url: "http://www.justanexamplenotarealwebsite.com/tool2", domain: "justanexamplenotarealwebsite.com", shared_secret: "test123", consumer_key: "test123", name: "tool 2")
+    @t1 = @course.context_external_tools.create!(
+      url: "http://www.justanexamplenotarealwebsite.com/tool1", domain: "justanexamplenotarealwebsite.com", shared_secret: "test123", consumer_key: "test123", name: "tool 1"
+    )
+    @t2 = @course.context_external_tools.create!(
+      url: "http://www.justanexamplenotarealwebsite.com/tool2", domain: "justanexamplenotarealwebsite.com", shared_secret: "test123", consumer_key: "test123", name: "tool 2"
+    )
   end
 
   it "allows creating through index", priority: "2" do
@@ -169,9 +173,9 @@ describe "external tool assignments" do
       get "/courses/#{@course.id}/assignments/#{assmt.id}/edit"
       selected = first_selected_option(f("#assignment_submission_type"))
       expect(selected.text.strip).to eq @t1.name
-      button = f("#assignment_submission_type_selection_launch_button")
-      expect(button).to be_displayed
-      expect(button.text).to include("link to #{@t1.name} or whatever") # the launch button uses the placement text
+      card = f("#assignment-submission-type-selection-resource-link-card")
+      expect(card).to be_displayed
+      expect(card.text).to include("link to #{@t1.name} or whatever") # the launch button uses the placement text
     end
 
     it "displays external data for mastery connect" do

@@ -114,6 +114,7 @@ module Api::V1::User
       if !excludes.include?("personal_info") && @domain_root_account&.enable_profiles? && user.profile
         json[:bio] = user.profile.bio if includes.include?("bio")
         json[:title] = user.profile.title if includes.include?("title")
+        json[:pronunciation] = user.profile.pronunciation if includes.include?("pronunciation") && @domain_root_account.enable_name_pronunciation?
       end
 
       if includes.include?("sections")
@@ -229,10 +230,11 @@ module Api::V1::User
       display_name: user.short_name,
       avatar_image_url: avatar_url_for_user(user),
       html_url: participant_url,
-      pronouns: user.pronouns
+      pronouns: user.pronouns,
     }
     hash[:avatar_is_fallback] = user.avatar_image_url.nil? if includes.include?(:avatar_is_fallback) && avatars_enabled_for_user?(user)
     hash[:fake_student] = true if user.fake_student?
+    hash[:email] = user.email if includes.include?(:email) && user.email.present?
     hash
   end
 
@@ -332,7 +334,7 @@ module Api::V1::User
       end
       if includes.include?("temporary_enrollment_providers") && enrollment.temporary_enrollment_source_user_id
         provider = api_find(User, enrollment.temporary_enrollment_source_user_id)
-        json[:temporary_enrollment_provider] = user_json(provider, user, session) unless provider.deleted?
+        json[:temporary_enrollment_provider] = user_json(provider, user, session, user_includes) unless provider.deleted?
       end
     end
   end

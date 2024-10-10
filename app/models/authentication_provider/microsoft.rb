@@ -42,9 +42,9 @@ class AuthenticationProvider::Microsoft < AuthenticationProvider::OpenIDConnect
   alias_method :application_secret=, :client_secret=
   alias_method :login_attribute_for_pseudonyms, :login_attribute
 
-  validates :tenants, presence: true
-  validate :tenants, :validate_tenants
-  validate :login_attribute, :validate_secure_login_attribute
+  validates :tenants, presence: true, if: :active?
+  validate :tenants, :validate_tenants, if: :active?
+  validate :login_attribute, :validate_secure_login_attribute, if: :active?
 
   def client_id
     application_id
@@ -76,6 +76,14 @@ class AuthenticationProvider::Microsoft < AuthenticationProvider::OpenIDConnect
   end
 
   def self.supports_autoconfirmed_email?
+    false
+  end
+
+  def self.always_validate?
+    true
+  end
+
+  def self.validate_issuer?
     false
   end
 
@@ -125,6 +133,12 @@ class AuthenticationProvider::Microsoft < AuthenticationProvider::OpenIDConnect
 
   def tenants
     [tenant.presence].compact + (settings["allowed_tenants"] || [])
+  end
+
+  def validate_signature(_token)
+    # The token is retrieved over TLS, so trust that, rather than the
+    # signature in the token, which might be signed by a various keys
+    # due to claims mapping
   end
 
   protected

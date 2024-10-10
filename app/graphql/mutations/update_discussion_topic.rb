@@ -26,9 +26,10 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
 
   # rubocop:disable GraphQL/ExtractInputType
   argument :anonymous_state, Types::DiscussionTopicAnonymousStateType, required: false
-  argument :discussion_topic_id, GraphQL::Schema::Object::ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("DiscussionTopic")
-  argument :remove_attachment, Boolean, required: false
   argument :assignment, Mutations::AssignmentBase::AssignmentUpdate, required: false
+  argument :discussion_topic_id, GraphQL::Schema::Object::ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("DiscussionTopic")
+  argument :discussion_type, Types::DiscussionTopicDiscussionType, required: false
+  argument :remove_attachment, Boolean, required: false
   # sets in-memory (not persisiting) flag to decide when to notify users about announcement changes
   argument :notify_users, Boolean, required: false
   argument :set_checkpoints, Boolean, required: false
@@ -50,15 +51,8 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
       discussion_topic.anonymous_state = (input[:anonymous_state] == "off") ? nil : input[:anonymous_state]
     end
 
-    unless input[:published].nil?
-      input[:published] ? discussion_topic.publish! : discussion_topic.unpublish!
-    end
-
-    unless input[:locked].nil?
-      input[:locked] ? discussion_topic.lock! : discussion_topic.unlock!
-    end
-
-    if !input.key?(:ungraded_discussion_overrides) && !Account.site_admin.feature_enabled?(:selective_release_ui_api)
+    if (!input.key?(:ungraded_discussion_overrides) && !Account.site_admin.feature_enabled?(:selective_release_ui_api)) || discussion_topic.is_announcement
+      # TODO: deprecate discussion_topic_section_visibilities for assignment_overrides LX-1498
       set_sections(input[:specific_sections], discussion_topic)
       invalid_sections = verify_specific_section_visibilities(discussion_topic) || []
 
@@ -67,8 +61,25 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
       end
     end
 
+    unless input[:published].nil?
+      input[:published] ? discussion_topic.publish! : discussion_topic.unpublish!
+    end
+
+    unless input[:locked].nil?
+      input[:locked] ? discussion_topic.lock! : discussion_topic.unlock!
+    end
+
     if !input[:remove_attachment].nil? && input[:remove_attachment]
       discussion_topic.attachment_id = nil
+    end
+
+    # if the discussion has threaded messages, can't disable threaded messages
+    if input[:discussion_type] == DiscussionTopic::DiscussionTypes::NOT_THREADED && discussion_topic.discussion_entries.where.not(parent_id: nil).where.not(workflow_state: "deleted").exists?
+      return validation_error(I18n.t("Cannot disable threaded replies when there are threaded messages under this discussion"))
+    end
+
+    unless input[:discussion_type].nil?
+      discussion_topic.discussion_type = input[:discussion_type]
     end
 
     process_common_inputs(input, discussion_topic.is_announcement, discussion_topic)
@@ -90,6 +101,8 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
           # Instantiate and execute UpdateAssignment mutation
           assignment_mutation = Mutations::UpdateAssignment.new(object: nil, context:, field: nil)
           assignment_result = assignment_mutation.resolve(input: updated_assignment_args)
+          discussion_topic.lock_at = input[:assignment][:lock_at] if input[:assignment][:lock_at]
+          discussion_topic.unlock_at = input[:assignment][:unlock_at] if input[:assignment][:unlock_at]
 
           if assignment_result[:errors]
             return { errors: assignment_result[:errors] }
@@ -116,13 +129,17 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
         end
 
         discussion_topic.assignment = assignment_create_result[:assignment]
+        discussion_topic.lock_at = input[:assignment][:lock_at] if input[:assignment][:lock_at]
+        discussion_topic.unlock_at = input[:assignment][:unlock_at] if input[:assignment][:unlock_at]
       end
 
       # Assignment must be present to set checkpoints
       if discussion_topic.assignment && input[:checkpoints]&.count == DiscussionTopic::REQUIRED_CHECKPOINT_COUNT
         return validation_error(I18n.t("If checkpoints are defined, forCheckpoints: true must be provided to the discussion topic assignment.")) unless input.dig(:assignment, :for_checkpoints)
 
-        checkpoint_service = if discussion_topic.assignment.has_sub_assignments
+        # on the case of changing an ungraded discussion to a graded, checkpointed discussion, at this stage
+        # has_sub_assignments? returns true, but sub_assignments is empty. We will want the creator service when this happens
+        checkpoint_service = if discussion_topic.assignment.has_sub_assignments? && discussion_topic.assignment.sub_assignments.any?
                                Checkpoints::DiscussionCheckpointUpdaterService
                              else
                                Checkpoints::DiscussionCheckpointCreatorService
@@ -154,6 +171,7 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
       )
     end
 
+    discussion_topic.editor = current_user
     return errors_for(discussion_topic) unless discussion_topic.save!
 
     if input.key?(:ungraded_discussion_overrides)

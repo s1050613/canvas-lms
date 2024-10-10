@@ -33,7 +33,9 @@ import DirectShareCourseTray from '@canvas/direct-sharing/react/components/Direc
 import DirectShareUserModal from '@canvas/direct-sharing/react/components/DirectShareUserModal'
 import '@canvas/jquery/jquery.disableWhileLoading'
 import {ltiState} from '@canvas/lti/jquery/messages'
-import ItemAssignToTray from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToTray'
+import ItemAssignToManager from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToManager'
+import {View} from '@instructure/ui-view'
+import {Spinner} from '@instructure/ui-spinner'
 
 const I18n = useI18nScope('pages')
 
@@ -48,6 +50,7 @@ export default class WikiPageIndexView extends PaginatedCollectionView {
         'click .header-row a[data-sort-field]': 'sort',
         'click .header-bar-right .menu_tool_link': 'openExternalTool',
         'click .pages-mobile-header a[data-sort-mobile-field]': 'sortBySelect',
+        'click #toggle_block_editor': 'toggleBlockEditor',
       },
 
       els: {
@@ -101,6 +104,8 @@ export default class WikiPageIndexView extends PaginatedCollectionView {
     if (!this.selectedPages) this.selectedPages = {}
     this.itemViewOptions.selectedPages = this.selectedPages
 
+    this.createNewPageWithBlockEditor = !!ENV.FEATURES?.BLOCK_EDITOR
+
     this.collection.on('fetch', () => {
       if (!this.fetched) {
         this.fetched = true
@@ -130,6 +135,16 @@ export default class WikiPageIndexView extends PaginatedCollectionView {
       return setTimeout(() => {
         $(this.focusAfterRenderSelector).focus()
       }, 1)
+    }
+
+    const node = document.querySelector('.paginatedLoadingIndicator')
+    if (node instanceof HTMLElement) {
+      ReactDOM.render(
+        <View padding="x-small" textAlign="center" as="div" display="block">
+          <Spinner delay={300} size="x-small" renderTitle={() => I18n.t('Loading')} />
+        </View>,
+        node
+      )
     }
   }
 
@@ -189,6 +204,10 @@ export default class WikiPageIndexView extends PaginatedCollectionView {
     }
   }
 
+  toggleBlockEditor(ev) {
+    this.createNewPageWithBlockEditor = ev.target.checked
+  }
+
   confirmDeletePages(ev) {
     if (ev != null) {
       ev.preventDefault()
@@ -228,7 +247,16 @@ export default class WikiPageIndexView extends PaginatedCollectionView {
     $('body').addClass('edit')
 
     this.editModel = new WikiPage(
-      {editing_roles: this.default_editing_roles},
+      {
+        editing_roles: this.default_editing_roles,
+        editor: this.createNewPageWithBlockEditor ? 'block_editor' : 'rce',
+        block_editor_attributes: this.createNewPageWithBlockEditor
+          ? {
+              version: '1',
+              blocks: undefined,
+            }
+          : null,
+      },
       {contextAssetString: this.contextAssetString}
     )
     this.editView = new WikiPageEditView({
@@ -344,7 +372,7 @@ export default class WikiPageIndexView extends PaginatedCollectionView {
     const handleTrayExited = () => ReactDOM.unmountComponentAtNode(this.$assignToMountPoint[0])
 
     ReactDOM.render(
-      <ItemAssignToTray
+      <ItemAssignToManager
         open={open}
         onClose={handleTrayClose}
         onDismiss={handleTrayClose}
@@ -384,6 +412,8 @@ export default class WikiPageIndexView extends PaginatedCollectionView {
     json.collectionHasTodoDate = this.collectionHasTodoDate()
     json.hasWikiIndexPlacements = this.wikiIndexPlacements.length > 0
     json.wikiIndexPlacements = this.wikiIndexPlacements
+
+    json.block_editor = !!ENV.FEATURES?.BLOCK_EDITOR
     return json
   }
 }

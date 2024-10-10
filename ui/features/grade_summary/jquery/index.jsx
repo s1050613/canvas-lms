@@ -481,7 +481,8 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
       scoreToLetterGrade(
         scoreToUse,
         grading_scheme,
-        ENV.course_active_grading_scheme?.points_based
+        ENV.course_active_grading_scheme?.points_based,
+        ENV.course_active_grading_scheme?.scaling_factor
       ) || I18n.t('N/A')
 
     $('.final_grade .letter_grade').text(GradeFormatHelper.replaceDashWithMinus(letterGrade))
@@ -506,7 +507,8 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
             Number(scaledPointsPossible.toFixed(2))
           ),
           grading_scheme,
-          ENV.course_active_grading_scheme.points_based
+          ENV.course_active_grading_scheme.points_based,
+          scaledPointsPossible
         ) || I18n.t('N/A')
 
       $('.final_grade .letter_grade').text(GradeFormatHelper.replaceDashWithMinus(letterGrade))
@@ -653,6 +655,10 @@ function bindShowAllDetailsButton($ariaAnnouncer) {
           $(`#rubric_${assignmentId}`).show()
           $(`#grade_info_${assignmentId}`).show()
           $(`#final_grade_info_${assignmentId}`).show()
+          $(`.parent_assignment_id_${assignmentId}`).show()
+          $(`#parent_assignment_id_${assignmentId} i`)
+            .removeClass('icon-arrow-open-end')
+            .addClass('icon-arrow-open-down')
         }
       })
       $ariaAnnouncer.text(I18n.t('assignment details expanded'))
@@ -660,6 +666,10 @@ function bindShowAllDetailsButton($ariaAnnouncer) {
       $button.text(I18n.t('Show All Details'))
       $('tr.rubric_assessments').hide()
       $('tr.comments').hide()
+      $('tr.sub_assignment_row').hide()
+      $(`.toggle_sub_assignments i`)
+        .removeClass('icon-arrow-open-down')
+        .addClass('icon-arrow-open-end')
       $ariaAnnouncer.text(I18n.t('assignment details collapsed'))
     }
   })
@@ -793,7 +803,7 @@ function setup() {
       $('#grades_summary .revert_score_link').each(function () {
         $(this).trigger('click', {skipEval: true, refocus: false})
       })
-      $('#.show_guess_grades.exists').show()
+      $('.show_guess_grades.exists').show()
       GradeSummary.updateStudentGrades()
       showAllWhatIfButton.focus()
       $.screenReaderFlashMessageExclusive(I18n.t('Grades are now reverted to original scores'))
@@ -840,6 +850,25 @@ function setup() {
         const mark_rubric_comments_read_url = $unreadIcon.data('href')
         $.ajaxJSON(mark_rubric_comments_read_url, 'PUT', {}, () => {})
         $unreadIcon.remove()
+      }
+    })
+    $('.toggle_sub_assignments').on('click', function (event) {
+      event.preventDefault()
+      const assignmentcode = $(this).prop('id')
+      if ($(`#${assignmentcode} i`).prop('class').includes('icon-arrow-open-end')) {
+        $(`.${assignmentcode}`).show()
+        $(`.${assignmentcode}`).prop('aria-expanded', true)
+        $(`#${assignmentcode} i`)
+          .removeClass('icon-arrow-open-end')
+          .addClass('icon-arrow-open-down')
+        $("#aria-announcer").text(I18n.t('Sub Assignment details expanded'))
+      } else {
+        $(`.${assignmentcode}`).hide()
+        $(`.${assignmentcode}`).prop('aria-expanded', true)
+        $(`#${assignmentcode} i`)
+          .removeClass('icon-arrow-open-down')
+          .addClass('icon-arrow-open-end')
+        $("#aria-announcer").text(I18n.t('Sub Assignment details collapsed'))
       }
     })
 

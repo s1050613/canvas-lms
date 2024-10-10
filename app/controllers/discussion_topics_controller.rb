@@ -197,12 +197,13 @@
 #           "type": "string"
 #         },
 #         "discussion_type": {
-#           "description": "The type of discussion. Values are 'side_comment', for discussions that only allow one level of nested comments, and 'threaded' for fully threaded discussions.",
+#           "description": "The type of discussion. Values are 'side_comment' or 'not_threaded', for discussions that only allow one level of nested comments, and 'threaded' for fully threaded discussions.",
 #           "example": "side_comment",
 #           "type": "string",
 #           "allowableValues": {
 #             "values": [
 #               "side_comment",
+#               "not_threaded",
 #               "threaded"
 #             ]
 #           }
@@ -301,6 +302,7 @@ class DiscussionTopicsController < ApplicationController
   # @returns [DiscussionTopic]
   def index
     include_params = Array(params[:include])
+    page_has_instui_topnav
     if params[:only_announcements]
       return unless authorized_action(@context.announcements.temp_record, @current_user, :read)
     else
@@ -318,7 +320,9 @@ class DiscussionTopicsController < ApplicationController
     # Specify the shard context, because downstream we use `union` which isn't
     # cross-shard compatible.
     @context.shard.activate do
-      scope = DiscussionTopic::ScopedToUser.new(@context, @current_user, scope).scope
+      unless params[:only_announcements]
+        scope = DiscussionTopic::ScopedToUser.new(@context, @current_user, scope).scope
+      end
       # see context for this separation in ScopedToSections
       scope = DiscussionTopic::ScopedToSections.for(self, @context, @current_user, scope).scope
     end
@@ -418,6 +422,7 @@ class DiscussionTopicsController < ApplicationController
         hash = {
           USER_SETTINGS_URL: api_v1_user_settings_url(@current_user),
           FEATURE_FLAGS_URL: feature_flags_url,
+          HAS_SIDE_COMMENT_DISCUSSIONS: Account.site_admin.feature_enabled?(:disallow_threaded_replies_fix_alert) ? @context.active_discussion_topics.only_discussion_topics.where(discussion_type: DiscussionTopic::DiscussionTypes::SIDE_COMMENT).exists? : false,
           totalDiscussions: scope.count,
           permissions: {
             create: @context.discussion_topics.temp_record.grants_right?(@current_user, session, :create),
@@ -499,15 +504,14 @@ class DiscussionTopicsController < ApplicationController
 
   def new
     @topic = @context.send(params[:is_announcement] ? :announcements : :discussion_topics).new
-    add_discussion_or_announcement_crumb
-    add_crumb t :create_new_crumb, "Create new"
+    page_has_instui_topnav
 
     edit
   end
 
   def edit
     @topic ||= @context.all_discussion_topics.find(params[:id])
-
+    page_has_instui_topnav
     if @topic.root_topic_id && @topic.has_group_category?
       return redirect_to edit_course_discussion_topic_url(@context.context_id, @topic.root_topic_id)
     end
@@ -559,6 +563,8 @@ class DiscussionTopicsController < ApplicationController
         override_dates: false,
         include_usage_rights:
       )
+
+      hash[:ATTRIBUTES][:has_threaded_replies] = @topic.has_threaded_replies?
     end
     (hash[:ATTRIBUTES] ||= {})[:is_announcement] = @topic.is_announcement
     hash[:ATTRIBUTES][:can_group] = @topic.can_group?
@@ -678,6 +684,7 @@ class DiscussionTopicsController < ApplicationController
       if Account.site_admin.feature_enabled?(:grading_scheme_updates)
         js_hash[:COURSE_DEFAULT_GRADING_SCHEME_ID] = @context.grading_standard_id || @context.default_grading_standard&.id
       end
+      js_hash[:RESTRICT_QUANTITATIVE_DATA] = @context.settings[:restrict_quantitative_data]
     end
 
     if @context.root_account.feature_enabled?(:discussion_create) && @context.feature_enabled?(:react_discussions_post) && @context.grants_right?(@current_user, session, :read)
@@ -707,6 +714,7 @@ class DiscussionTopicsController < ApplicationController
 
   def show
     @topic = @context.all_discussion_topics.find(params[:id])
+    page_has_instui_topnav
     # we still need the lock info even if the current user policies unlock the topic. check the policies manually later if you need to override the lockout.
     @locked = @topic.locked_for?(@current_user, check_policies: true, deep_check_if_needed: true)
 
@@ -763,7 +771,7 @@ class DiscussionTopicsController < ApplicationController
         current_page: 0
       }
       env_hash[:context_rubric_associations_url] = context_url(@context, :context_rubric_associations_url) rescue nil
-      if params[:entry_id]
+      if params[:entry_id] && (entry = @topic.discussion_entries.find_by(id: params[:entry_id]))
         entry = @topic.discussion_entries.find(params[:entry_id])
         env_hash[:discussions_deep_link] = {
           root_entry_id: entry.root_entry_id,
@@ -844,8 +852,8 @@ class DiscussionTopicsController < ApplicationController
                discussion_grading_view: Account.site_admin.feature_enabled?(:discussion_grading_view),
                draft_discussions: Account.site_admin.feature_enabled?(:draft_discussions),
                discussion_entry_version_history: Account.site_admin.feature_enabled?(:discussion_entry_version_history),
-               discussion_translation_available: Translation.available?(@context, :translation), # Is translation enabled on the course.
-               discussion_translation_languages: Translation.available?(@context, :translation) ? Translation.translated_languages(@current_user) : [],
+               discussion_translation_available: Translation.available?(@domain_root_account, :translation), # Is translation enabled on the course.
+               discussion_translation_languages: Translation.available?(@domain_root_account, :translation) ? Translation.translated_languages(@current_user) : [],
                discussion_anonymity_enabled: @context.feature_enabled?(:react_discussions_post),
                user_can_summarize: @topic.user_can_summarize?(@current_user),
                discussion_summary_enabled: @topic.summary_enabled,
@@ -877,7 +885,13 @@ class DiscussionTopicsController < ApplicationController
 
       js_bundle :discussion_topics_post
       css_bundle :discussions_index, :learning_outcomes
-      render html: "", layout: (params[:embed] == "true") ? "mobile_embed" : true
+
+      respond_to do |format|
+        format.html do
+          render html: "", layout: (params[:embed] == "true") ? "mobile_embed" : true
+        end
+      end
+
       return
     end
 
@@ -1041,8 +1055,8 @@ class DiscussionTopicsController < ApplicationController
   #
   # @argument message [String]
   #
-  # @argument discussion_type [String, "side_comment"|"threaded"]
-  #   The type of discussion. Defaults to side_comment if not value is given. Accepted values are 'side_comment', for discussions that only allow one level of nested comments, and 'threaded' for fully threaded discussions.
+  # @argument discussion_type [String, "side_comment"|"threaded"|"not_threaded"]
+  #   The type of discussion. Defaults to side_comment or not_threaded if not value is given. Accepted values are 'side_comment', 'not_threaded' for discussions that only allow one level of nested comments, and 'threaded' for fully threaded discussions.
   #
   # @argument published [Boolean]
   #   Whether this topic is published (true) or draft state (false). Only
@@ -1128,6 +1142,7 @@ class DiscussionTopicsController < ApplicationController
   #         -H 'Authorization: Bearer <token>'
   #
   def create
+    page_has_instui_topnav
     process_discussion_topic(is_new: true)
   end
 
@@ -1139,8 +1154,8 @@ class DiscussionTopicsController < ApplicationController
   #
   # @argument message [String]
   #
-  # @argument discussion_type [String, "side_comment"|"threaded"]
-  #   The type of discussion. Defaults to side_comment if not value is given. Accepted values are 'side_comment', for discussions that only allow one level of nested comments, and 'threaded' for fully threaded discussions.
+  # @argument discussion_type [String, "side_comment"|"threaded"|"not_threaded"]
+  #   The type of discussion. Defaults to side_comment or not_threaded if not value is given. Accepted values are 'side_comment', 'not_threaded' for discussions that only allow one level of nested comments, and 'threaded' for fully threaded discussions.
   #
   # @argument published [Boolean]
   #   Whether this topic is published (true) or draft state (false). Only
@@ -1773,7 +1788,7 @@ class DiscussionTopicsController < ApplicationController
       attachment = params[:attachment].present? &&
                    params[:attachment]
 
-      return if attachment && attachment.size > 1.kilobytes &&
+      return if attachment && attachment.size > 1.kilobyte &&
                 quota_exceeded(@context, named_context_url(@context, :context_discussion_topics_url))
 
       if (params.key?(:remove_attachment) || attachment) && @topic.attachment

@@ -58,6 +58,9 @@ enhanced_gradebook_filters:
       this flag is enabled, early access to ongoing improvements will be displayed
       automatically with every release. For full details, please see the *Gradebook
       Filters User Group* in the Canvas Community.
+  environments:
+    development:
+      state: on # enable for local development
 message_observers_of_students_who:
   state: hidden
   applies_to: SiteAdmin
@@ -186,17 +189,6 @@ new_quiz_deleted_workflow_restore_pending_review_state:
       state: allowed_on # enable for local development
     test:
       state: allowed_on # enable for the deployed 'test' environment
-individual_gradebook_enhancements:
-  state: hidden
-  applies_to: RootAccount
-  display_name: Individual Gradebook Enhancements
-  description: This feature introduces performance and maintenance enhancements
-    to Individual Gradebook
-  environments:
-    ci:
-      state: allowed_on # enable for automated testings builds and local testing
-    development:
-      state: allowed_on # enable for local development
 hide_zero_point_quizzes_option:
   state: hidden
   applies_to: SiteAdmin
@@ -295,12 +287,23 @@ archived_grading_schemes:
     development:
       state: allowed_on
 enhanced_rubrics:
-  beta: true
   state: hidden
-  applies_to: RootAccount
+  beta: true
+  applies_to: Course
   root_opt_in: true
-  display_name: Rubric Enhancements
+  display_name: Enhanced Rubrics
   description: This feature provides visual and functional enhancements to rubrics across Canvas.
+  environments:
+    ci:
+      state: allowed
+    development:
+      state: allowed
+enhanced_rubrics_copy_to:
+  state: hidden
+  applies_to: Course
+  root_opt_in: true
+  display_name: Enhanced Rubrics Copy To
+  description: This functionality allows copying rubrics between courses from the enhanced rubrics UI and also assigning them directly to an assignment.
   environments:
     ci:
       state: allowed
@@ -328,7 +331,7 @@ customizable_default_due_time:
       state: allowed_on
 platform_service_speedgrader:
   state: hidden
-  applies_to: SiteAdmin
+  applies_to: Course
   display_name: "SpeedGrader 2: Steel Thread"
   description: This feature provides a new SpeedGrader platform experience.
   environments:
@@ -351,6 +354,34 @@ speedgrader_studio_media_capture:
   applies_to: SiteAdmin
   display_name: SpeedGrader Studio Media Capture
   description: This feature provides the ability to capture media in SpeedGrader using Studio Screen Capture.
+  environments:
+    ci:
+      state: allowed
+    development:
+      state: allowed
+rubric_imports_exports:
+  state: hidden
+  applies_to: RootAccount
+  root_opt_in: true
+  display_name: Rubric Imports and Exports
+  description: This feature allows users to import and export rubrics from CSV and XML files from Enhanced Rubrics.
+  environments:
+    ci:
+      state: allowed
+    development:
+      state: allowed
+rce_lite_enabled_speedgrader_comments:
+  state: hidden
+  applies_to: RootAccount
+  display_name: RCE lite in Speedgrader comments
+  description: Allows Speedgrader comments to be formatted using RCE lite.
+enhanced_rubrics_assignments:
+  state: hidden
+  beta: true
+  applies_to: Course
+  root_opt_in: true
+  display_name: Enhanced Rubrics Assignments Page
+  description: This feature allows users to create and search for rubrics while using the Enhanced Rubrics design on the Assignments page.
   environments:
     ci:
       state: allowed

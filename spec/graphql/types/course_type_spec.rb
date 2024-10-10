@@ -864,6 +864,8 @@ describe Types::CourseType do
   describe "AssignmentGroupConnection" do
     it "returns assignment groups" do
       ag = course.assignment_groups.create!(name: "a group")
+      ag2 = course.assignment_groups.create!(name: "another group")
+      ag2.destroy
       expect(
         course_type.resolve("assignmentGroupsConnection { edges { node { _id } } }")
       ).to eq [ag.to_param]
@@ -1040,6 +1042,21 @@ describe Types::CourseType do
       expect(
         course_type.resolve("rubricsConnection { edges { node { workflowState } } }")
       ).to eq ["active"]
+    end
+  end
+
+  describe "ActivityStream" do
+    it "return activity stream summaries" do
+      cur_course = Course.create!
+      new_teacher = User.create!
+      cur_course.enroll_teacher(new_teacher).accept
+      cur_course.announcements.create! title: "hear ye!", message: "wat"
+      cur_course.discussion_topics.create!
+      cur_resolver = GraphQLTypeTester.new(cur_course, current_user: new_teacher)
+      expect(cur_resolver.resolve("activityStream { summary { type } } ")).to match_array ["DiscussionTopic", "Announcement"]
+      expect(cur_resolver.resolve("activityStream { summary { count } } ")).to match_array [1, 1]
+      expect(cur_resolver.resolve("activityStream { summary { unreadCount } } ")).to match_array [1, 1]
+      expect(cur_resolver.resolve("activityStream { summary { notificationCategory } } ")).to match_array [nil, nil]
     end
   end
 end

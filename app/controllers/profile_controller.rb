@@ -51,6 +51,11 @@
 #         "bio": {
 #           "type": "string"
 #         },
+#         "pronunciation": {
+#           "description": "Name pronunciation",
+#           "example": "Sample name pronunciation",
+#           "type": "string"
+#         },
 #         "primary_email": {
 #           "description": "sample_user@example.com",
 #           "example": "sample_user@example.com",
@@ -161,6 +166,7 @@ class ProfileController < ApplicationController
   include Api::V1::UserProfile
 
   include TextHelper
+  include ProfileHelper
 
   def show
     unless @current_user && @domain_root_account.enable_profiles?
@@ -183,7 +189,13 @@ class ProfileController < ApplicationController
 
     if @user_data[:known_user] # if you can message them, you can see the profile
       js_env enable_gravatar: @domain_root_account&.enable_gravatar?
-      add_crumb(t("crumbs.settings_frd", "%{user}'s Profile", user: @user.short_name), user_profile_path(@user))
+      if @domain_root_account.try(:feature_enabled?, :instui_nav)
+        add_crumb(@user.short_name, user_profile_path(@user))
+        add_crumb(t("Profile"))
+      else
+        add_crumb(t("crumbs.settings_frd", "%{user}'s Profile", user: @user.short_name), user_profile_path(@user))
+      end
+      page_has_instui_topnav
       render
     else
       render :unauthorized
@@ -463,6 +475,7 @@ class ProfileController < ApplicationController
     if params[:user_profile] && @user.user_can_edit_profile?
       user_profile_params = params[:user_profile].permit(:title, :pronunciation, :bio)
       user_profile_params.delete(:title) unless @user.user_can_edit_name?
+      user_profile_params.delete(:pronunciation) unless @domain_root_account.enable_name_pronunciation?
       @profile.attributes = user_profile_params
     end
 

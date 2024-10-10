@@ -48,6 +48,7 @@ function normalizeSubmissionGrade(props: Props) {
     enterGradesAs: formatType,
     gradingScheme,
     pointsBasedGradingScheme,
+    scalingFactor,
   } = props
   const gradeToNormalize = submission.enteredGrade
 
@@ -67,6 +68,7 @@ function normalizeSubmissionGrade(props: Props) {
     gradingScheme,
     pointsBasedGradingScheme,
     pointsPossible: assignment.pointsPossible,
+    scalingFactor,
     version: 'entered',
   }
 
@@ -142,10 +144,12 @@ type Props = {
   pointsBasedGradingScheme: boolean
   onSubmissionUpdate: (submission: SubmissionData, gradeInfo: GradeResult) => void
   pendingGradeInfo: PendingGradeInfo
+  scalingFactor: number
   submission: SubmissionData
   submissionUpdating: boolean
   subAssignmentTag?: string
   header?: string
+  inputDisplay?: 'inline-block' | 'block'
 }
 
 type State = {
@@ -160,7 +164,9 @@ export default class GradeInput extends Component<Props, State> {
     pointsBasedGradingScheme: false,
     onSubmissionUpdate() {},
     pendingGradeInfo: null,
+    scalingFactor: 1.0,
     submissionUpdating: false,
+    inputDisplay: 'inline-block',
   }
 
   constructor(props: Props) {
@@ -221,6 +227,7 @@ export default class GradeInput extends Component<Props, State> {
       gradingScheme: this.props.gradingScheme,
       pointsBasedGradingScheme: this.props.pointsBasedGradingScheme,
       pointsPossible: this.props.assignment.pointsPossible,
+      scalingFactor: this.props.scalingFactor,
       subAssignmentTag: this.props.subAssignmentTag,
     })
 
@@ -259,6 +266,7 @@ export default class GradeInput extends Component<Props, State> {
         gradingScheme: this.props.gradingScheme,
         pointsBasedGradingScheme: this.props.pointsBasedGradingScheme,
         pointsPossible: this.props.assignment.pointsPossible,
+        scalingFactor: this.props.scalingFactor,
         subAssignmentTag: this.props.subAssignmentTag,
       })
     }
@@ -316,7 +324,8 @@ export default class GradeInput extends Component<Props, State> {
           </Text>
         )}
         <TextInput
-          display="inline-block"
+          autoComplete="off"
+          display={this.props.inputDisplay}
           id="grade-detail-tray--grade-input"
           interaction={interaction}
           messages={messages}

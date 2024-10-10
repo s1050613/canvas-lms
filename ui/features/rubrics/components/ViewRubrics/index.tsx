@@ -18,7 +18,7 @@
 
 import React, {useEffect, useRef, useState} from 'react'
 import {useNavigate, useParams} from 'react-router-dom'
-import {useQuery} from '@canvas/query'
+import {queryClient, useQuery} from '@canvas/query'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import LoadingIndicator from '@canvas/loading-indicator'
 import type {Rubric} from '@canvas/rubrics/react/types/rubric'
@@ -26,7 +26,7 @@ import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Button} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 import {Heading} from '@instructure/ui-heading'
-import {IconAddLine, IconSearchLine} from '@instructure/ui-icons'
+import {IconAddLine, IconSearchLine, IconImportLine} from '@instructure/ui-icons'
 import {TextInput} from '@instructure/ui-text-input'
 import {Tabs} from '@instructure/ui-tabs'
 import {View} from '@instructure/ui-view'
@@ -43,7 +43,8 @@ import {
 } from '../../queries/ViewRubricQueries'
 import {RubricAssessmentTray} from '@canvas/rubrics/react/RubricAssessment'
 import {showFlashError, showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
-import {UsedLocationsModal, type FetchUsedLocationResponse} from '@canvas/grading-scheme'
+import {type FetchUsedLocationResponse, UsedLocationsModal} from './UsedLocationsModal'
+import {ImportRubric} from './ImportRubric'
 
 const {Item: FlexItem} = Flex
 
@@ -56,9 +57,10 @@ export const TABS = {
 
 export type ViewRubricsProps = {
   canManageRubrics?: boolean
+  showHeader?: boolean
 }
 
-export const ViewRubrics = ({canManageRubrics = false}: ViewRubricsProps) => {
+export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewRubricsProps) => {
   const navigate = useNavigate()
   const {accountId, courseId} = useParams()
   const isAccount = !!accountId
@@ -71,6 +73,7 @@ export const ViewRubrics = ({canManageRubrics = false}: ViewRubricsProps) => {
   const [archivedRubrics, setArchivedRubrics] = useState<Rubric[]>([])
   const [rubricIdForLocations, setRubricIdForLocations] = useState<string>()
   const [loadingUsedLocations, setLoadingUsedLocations] = useState(false)
+  const [importTrayIsOpen, setImportTrayIsOpen] = useState(false)
   const path = useRef<string | undefined>(undefined)
 
   const handleArchiveRubric = async (rubricId: string) => {
@@ -140,7 +143,6 @@ export const ViewRubrics = ({canManageRubrics = false}: ViewRubricsProps) => {
               title: curr.title,
               pointsPossible: curr.pointsPossible,
               criteriaCount: curr.criteriaCount,
-              locations: [], // TODO: add locations once we have them
               ratingOrder: curr.ratingOrder,
               hidePoints: curr.hidePoints,
               freeFormCriterionComments: curr.freeFormCriterionComments,
@@ -227,13 +229,20 @@ export const ViewRubrics = ({canManageRubrics = false}: ViewRubricsProps) => {
     }
   }
 
+  const handleImportSuccess = async (importedRubrics: Rubric[]) => {
+    setActiveRubrics(prevState => [...prevState, ...importedRubrics])
+    await queryClient.invalidateQueries([queryKey], undefined, {cancelRefetch: true})
+  }
+
   return (
     <View as="div">
       <Flex>
         <FlexItem shouldShrink={true} shouldGrow={true}>
-          <Heading level="h1" themeOverride={{h1FontWeight: 700}} margin="medium 0 0 0">
-            {I18n.t('Rubrics')}
-          </Heading>
+          {showHeader && (
+            <Heading level="h1" themeOverride={{h1FontWeight: 700}} margin="medium 0 0 0">
+              {I18n.t('Rubrics')}
+            </Heading>
+          )}
         </FlexItem>
         <FlexItem>
           <TextInput
@@ -249,9 +258,21 @@ export const ViewRubrics = ({canManageRubrics = false}: ViewRubricsProps) => {
         <FlexItem>
           {canManageRubrics && (
             <Button
+              renderIcon={IconImportLine}
+              color="secondary"
+              margin="small"
+              data-testid="import-rubric-button"
+              onClick={() => setImportTrayIsOpen(true)}
+            >
+              {I18n.t('Import Rubric')}
+            </Button>
+          )}
+        </FlexItem>
+        <FlexItem>
+          {canManageRubrics && (
+            <Button
               renderIcon={IconAddLine}
               color="primary"
-              margin="small"
               onClick={() => navigate('./create')}
               data-testid="create-new-rubric-button"
             >
@@ -322,6 +343,14 @@ export const ViewRubrics = ({canManageRubrics = false}: ViewRubricsProps) => {
         itemId={rubricIdForLocations}
         isOpen={!!rubricIdForLocations}
         onClose={handleLocationsUsedModalClose}
+      />
+
+      <ImportRubric
+        accountId={accountId}
+        courseId={courseId}
+        isTrayOpen={importTrayIsOpen}
+        handleImportSuccess={handleImportSuccess}
+        handleTrayClose={() => setImportTrayIsOpen(false)}
       />
     </View>
   )

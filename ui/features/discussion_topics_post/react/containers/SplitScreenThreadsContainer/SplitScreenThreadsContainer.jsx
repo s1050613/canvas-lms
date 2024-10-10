@@ -235,6 +235,7 @@ const SplitScreenThreadContainer = props => {
   useEffect(() => {
     if (
       !ENV.manual_mark_as_read &&
+      !props.discussionEntry?.deleted &&
       !props.discussionEntry.entryParticipant?.read &&
       !props.discussionEntry?.entryParticipant?.forcedReadState
     ) {
@@ -287,13 +288,14 @@ const SplitScreenThreadContainer = props => {
     },
   })
 
-  const onUpdate = (message, _quotedEntryId, file) => {
+  const onUpdate = (message, quotedEntryId, file) => {
     updateDiscussionEntry({
       variables: {
         discussionEntryId: props.discussionEntry._id,
         message,
         fileId: file?._id,
         removeAttachment: !file?._id,
+        quotedEntryId,
       },
     })
   }
@@ -305,6 +307,7 @@ const SplitScreenThreadContainer = props => {
         authorName={getDisplayName(props.discussionEntry)}
         delimiterKey={`reply-delimiter-${props.discussionEntry.id}`}
         onClick={() => props.onOpenSplitScreenView(props.discussionEntry._id, true)}
+        isSplitScreenView={true}
       />
     )
   }
@@ -321,6 +324,20 @@ const SplitScreenThreadContainer = props => {
         isLiked={!!props.discussionEntry.entryParticipant?.rating}
         likeCount={props.discussionEntry.ratingSum || 0}
         interaction={props.discussionEntry.permissions.rate ? 'enabled' : 'disabled'}
+        isSplitScreenView={true}
+      />
+    )
+  }
+
+  if (!props.discussionEntry.deleted) {
+    threadActions.push(
+      <ThreadingToolbar.MarkAsRead
+        key={`mark-as-read-${props.discussionEntry.id}`}
+        delimiterKey={`mark-as-read-delimiter-${props.discussionEntry.id}`}
+        isRead={props.discussionEntry.entryParticipant?.read}
+        authorName={getDisplayName(props.discussionEntry)}
+        onClick={toggleUnread}
+        isSplitScreenView={true}
       />
     )
   }

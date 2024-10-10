@@ -33,6 +33,9 @@ const {porcelain} = getCurrentTheme()?.colors ?? {porcelain: 'white'}
 const overrides = {
   desktopBackgroundInverse: porcelain,
   smallViewportBackgroundInverse: porcelain,
+  desktopZIndex: 99,
+  smallViewportZIndex: 99,
+  smallViewportTrayZIndex: 99,
 }
 
 export interface ITopNavProps {
@@ -84,8 +87,10 @@ const TopNav: React.FC<ITopNavProps> = ({actionItems, getBreadCrumbSetter}) => {
           setBreadCrumbs(newCrumbs)
         } else {
           setBreadCrumbs(crumbs => {
-            const oldCrumbs = crumbs.length > 1 ? crumbs.slice(0, -1) : crumbs
-            return [...oldCrumbs, newCrumbs]
+            if (crumbs) {
+              const oldCrumbs = crumbs.length > 1 ? crumbs.slice(0, -1) : crumbs
+              return [...oldCrumbs, newCrumbs]
+            }
           })
         }
       }

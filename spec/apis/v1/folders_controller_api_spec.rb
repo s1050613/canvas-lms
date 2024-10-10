@@ -618,6 +618,33 @@ describe "Folders API", type: :request do
                  expected_status: 401)
       end
     end
+
+    context "account context" do
+      it "creates by folder path with admin" do
+        api_call_as_user(account_admin_user,
+                         :post,
+                         "/api/v1/accounts/#{Account.default.id}/folders",
+                         @folders_path_options.merge(account_id: Account.default.id.to_param),
+                         { name: "new_folder", parent_folder_path: "files/" },
+                         {},
+                         expected_status: 200)
+
+        root = Folder.root_folders(Account.default).first
+        expect(root.sub_folders.count).to eq 1
+        subfolder = root.sub_folders.first
+        expect(subfolder.name).to eq "new_folder"
+        expect(subfolder.full_name).to eq "files/new_folder"
+      end
+
+      it "returns unauthorized when creating by folder path with non admin" do
+        api_call(:post,
+                 "/api/v1/accounts/#{Account.default.id}/folders",
+                 @folders_path_options.merge(account_id: Account.default.id.to_param),
+                 { name: "new_folder", parent_folder_path: "files/" },
+                 {},
+                 expected_status: 401)
+      end
+    end
   end
 
   describe "#update" do
@@ -722,6 +749,25 @@ describe "Folders API", type: :request do
         api_call(:post,
                  "/api/v1/folders/#{@root.id}/files",
                  { controller: "folders", action: "create_file", format: "json", folder_id: @root.id.to_param },
+                 { name: "with_path.txt" },
+                 {},
+                 { expected_status: 401 })
+      end
+    end
+
+    context "as student in limited access account" do
+      before do
+        course_with_student
+        @course.root_account.enable_feature!(:allow_limited_access_for_students)
+        @course.account.settings[:enable_limited_access_for_students] = true
+        @course.account.save!
+      end
+
+      it "renders unauthorized" do
+        @root_folder = Folder.root_folders(@course).first
+        api_call(:post,
+                 "/api/v1/folders/#{@root_folder.id}/files",
+                 { controller: "folders", action: "create_file", format: "json", folder_id: @root_folder.id.to_param },
                  { name: "with_path.txt" },
                  {},
                  { expected_status: 401 })

@@ -497,6 +497,16 @@ describe "Files API", type: :request do
       expect(existing.replacement_attachment).to eq attachment
     end
 
+    it "is permitted if attachment context is an account" do
+      account = Account.default
+      folder = Folder.root_folders(account).first
+      params = base_params.merge(context_type: "Account", context_id: account.global_id, folder: folder.id, size: 864.kilobytes)
+      raw_api_call(:post,
+                   "/api/v1/files/capture?#{params.to_query}",
+                   params.merge(controller: "files", action: "api_capture", format: "json"))
+      assert_status(201)
+    end
+
     describe "re-uploading a file" do
       before :once do
         @existing = Attachment.create!(
@@ -1087,35 +1097,39 @@ describe "Files API", type: :request do
       @file_path_options = { controller: "files", action: "api_show", format: "json", id: @att.id.to_param }
     end
 
+    def attachment_json
+      {
+        "id" => @att.id,
+        "uuid" => @att.uuid,
+        "folder_id" => @att.folder_id,
+        "url" => file_download_url(@att, verifier: @att.uuid, download: "1", download_frd: "1"),
+        "content-type" => "image/png",
+        "display_name" => "test-frd.png",
+        "filename" => @att.filename,
+        "size" => @att.size,
+        "unlock_at" => nil,
+        "locked" => false,
+        "hidden" => false,
+        "lock_at" => nil,
+        "locked_for_user" => false,
+        "hidden_for_user" => false,
+        "created_at" => @att.created_at.as_json,
+        "updated_at" => @att.updated_at.as_json,
+        "upload_status" => "success",
+        "thumbnail_url" => thumbnail_image_url(@att, @att.uuid, host: "www.example.com"),
+        "modified_at" => @att.modified_at.as_json,
+        "mime_class" => @att.mime_class,
+        "media_entry_id" => @att.media_entry_id,
+        "canvadoc_session_url" => nil,
+        "crocodoc_session_url" => nil,
+        "category" => "uncategorized",
+        "visibility_level" => @att.visibility_level
+      }
+    end
+
     it "returns expected json" do
       json = api_call(:get, @file_path, @file_path_options, {})
-      expect(json).to eq({
-                           "id" => @att.id,
-                           "uuid" => @att.uuid,
-                           "folder_id" => @att.folder_id,
-                           "url" => file_download_url(@att, verifier: @att.uuid, download: "1", download_frd: "1"),
-                           "content-type" => "image/png",
-                           "display_name" => "test-frd.png",
-                           "filename" => @att.filename,
-                           "size" => @att.size,
-                           "unlock_at" => nil,
-                           "locked" => false,
-                           "hidden" => false,
-                           "lock_at" => nil,
-                           "locked_for_user" => false,
-                           "hidden_for_user" => false,
-                           "created_at" => @att.created_at.as_json,
-                           "updated_at" => @att.updated_at.as_json,
-                           "upload_status" => "success",
-                           "thumbnail_url" => thumbnail_image_url(@att, @att.uuid, host: "www.example.com"),
-                           "modified_at" => @att.modified_at.as_json,
-                           "mime_class" => @att.mime_class,
-                           "media_entry_id" => @att.media_entry_id,
-                           "canvadoc_session_url" => nil,
-                           "crocodoc_session_url" => nil,
-                           "category" => "uncategorized",
-                           "visibility_level" => @att.visibility_level
-                         })
+      expect(json).to eq(attachment_json)
     end
 
     it "works with a context path" do
@@ -1358,6 +1372,24 @@ describe "Files API", type: :request do
 
         it "sets a preview url" do
           expect(subject["preview_url"]).not_to be_nil
+        end
+      end
+
+      context "enrolled in limited access account" do
+        before do
+          @course.account.root_account.enable_feature!(:allow_limited_access_for_students)
+          @course.account.settings[:enable_limited_access_for_students] = true
+          @course.account.save!
+        end
+
+        it "renders unauthorized if called via API" do
+          api_call(:get, @file_path, @file_path_options, {})
+          expect(response).to have_http_status :unauthorized
+        end
+
+        it "returns expected json if called from UI" do
+          json = api_call(:get, @file_path, @file_path_options, {}, { "HTTP_REFERER" => "https://rspec.instructure.com" })
+          expect(json).to eq(attachment_json)
         end
       end
     end
@@ -1675,6 +1707,190 @@ describe "Files API", type: :request do
         api_call(:post, @file_path, @file_path_options, {}, {}, expected_status: 401)
         expect(@att.reload.uuid).to eq old_uuid
       end
+    end
+  end
+
+  describe "#rce_linked_file_instfs_ids" do
+    before :once do
+      course_with_teacher(active_all: true)
+    end
+
+    before do
+      account_admin_user(account: @course.root_account)
+      user_session(@user)
+      allow(Canvadocs).to receive(:enabled?).and_return(true)
+      allow(InstFS).to receive_messages(enabled?: true, app_host: "http://instfs.test")
+    end
+
+    it "returns 404 if feature not enabled" do
+      Account.site_admin.disable_feature!(:rce_linked_file_urls)
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, {}, {}, expected_status: 404)
+    end
+
+    it "allows access to course files the user has access to manage" do
+      course = @course
+      doc = attachment_model(context: course, display_name: "test.docx", uploaded_data: fixture_file_upload("test.docx"), instfs_uuid: "doc")
+      image = attachment_model(context: course, display_name: "cn_image.jpg", uploaded_data: fixture_file_upload("cn_image.jpg"), instfs_uuid: "image")
+      media = attachment_model(context: course, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media")
+      diff_course = attachment_model(context: course_factory, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media2")
+
+      file_urls = [
+        "/courses/#{course.id}/files/#{doc.id}?wrap=1",
+        "/courses/#{course.id}/files/#{image.id}/preview",
+        "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true",
+        "/media_attachments_iframe/#{diff_course.id}?type=video&amp;embedded=true"
+      ]
+      body = { user_uuid: @teacher.uuid, file_urls: }
+
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, body, {}, expected_status: 200)
+      json = JSON.parse(response.body)
+      expect(json).to eq({
+                           "instfs_ids" => { "/courses/#{course.id}/files/#{image.id}/preview" => "image" },
+                           "canvas_instfs_ids" => {
+                             "/courses/#{course.id}/files/#{doc.id}?wrap=1" => "doc",
+                             "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true" => "media"
+                           }
+                         })
+    end
+
+    it "allows access to user files the user has access to manage" do
+      doc = attachment_model(context: @teacher, display_name: "test.docx", uploaded_data: fixture_file_upload("test.docx"), instfs_uuid: "doc")
+      image = attachment_model(context: @teacher, display_name: "cn_image.jpg", uploaded_data: fixture_file_upload("cn_image.jpg"), instfs_uuid: "image")
+      media = attachment_model(context: @teacher, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media")
+      not_yours = attachment_model(context: @user, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media2")
+
+      file_urls = [
+        "/users/#{@teacher.id}/files/#{doc.id}?wrap=1",
+        "/users/#{@teacher.id}/files/#{image.id}/preview",
+        "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true",
+        "/media_attachments_iframe/#{not_yours.id}?type=video&amp;embedded=true"
+      ]
+      body = { user_uuid: @teacher.uuid, file_urls: }
+
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, body, {}, expected_status: 200)
+      json = JSON.parse(response.body)
+      expect(json).to eq({
+                           "instfs_ids" => { "/users/#{@teacher.id}/files/#{image.id}/preview" => "image" },
+                           "canvas_instfs_ids" => {
+                             "/users/#{@teacher.id}/files/#{doc.id}?wrap=1" => "doc",
+                             "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true" => "media"
+                           }
+                         })
+    end
+
+    it "allows access to contextless files the user has access to manage" do
+      doc = attachment_model(context: @course, display_name: "test.docx", uploaded_data: fixture_file_upload("test.docx"), instfs_uuid: "doc")
+
+      file_urls = ["/files/#{doc.id}/download?download_frd=1", "/files/#{doc.id}", "http://example.canvas.edu/files/#{doc.id}/download"]
+      body = { user_uuid: @teacher.uuid, file_urls: }
+
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, body, {}, expected_status: 200)
+      json = JSON.parse(response.body)
+      expect(json).to eq({
+                           "canvas_instfs_ids" => {
+                             "/files/#{doc.id}/download?download_frd=1" => "doc",
+                             "/files/#{doc.id}" => "doc",
+                             "http://example.canvas.edu/files/#{doc.id}/download" => "doc"
+                           }
+                         })
+    end
+
+    it "doesn't allow deleted file access" do
+      doc = attachment_model(context: @course, display_name: "test.docx", uploaded_data: fixture_file_upload("test.docx"), instfs_uuid: "doc")
+      image = attachment_model(context: @teacher, display_name: "cn_image.jpg", uploaded_data: fixture_file_upload("cn_image.jpg"), instfs_uuid: "image")
+      media = attachment_model(context: @course, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media")
+      Attachment.where(id: [doc, image, media]).destroy_all
+
+      file_urls = [
+        "/courses/#{@course.id}/files/#{doc.id}?wrap=1",
+        "/courses/#{@course.id}/files/#{image.id}/preview",
+        "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true",
+      ]
+      body = { user_uuid: @teacher.uuid, file_urls: }
+
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, body, {}, expected_status: 422)
+      json = JSON.parse(response.body)
+      expect(json).to eq({ "errors" => [{ "message" => "No valid file URLs given" }] })
+    end
+
+    it "shows hidden files" do
+      doc = attachment_model(context: @course, display_name: "test.docx", uploaded_data: fixture_file_upload("test.docx"), instfs_uuid: "doc", file_state: "hidden")
+      image = attachment_model(context: @course, display_name: "cn_image.jpg", uploaded_data: fixture_file_upload("cn_image.jpg"), instfs_uuid: "image", file_state: "hidden")
+      media = attachment_model(context: @course, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media", file_state: "hidden")
+
+      file_urls = [
+        "/courses/#{@course.id}/files/#{doc.id}?wrap=1",
+        "/courses/#{@course.id}/files/#{image.id}/preview",
+        "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true",
+      ]
+      body = { user_uuid: @teacher.uuid, file_urls:, }
+
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, body, {}, expected_status: 200)
+      json = JSON.parse(response.body)
+      expect(json).to eq({
+                           "instfs_ids" => { "/courses/#{@course.id}/files/#{image.id}/preview" => "image" },
+                           "canvas_instfs_ids" => {
+                             "/courses/#{@course.id}/files/#{doc.id}?wrap=1" => "doc",
+                             "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true" => "media"
+                           }
+                         })
+    end
+
+    it "follows replaced files" do
+      doc2 = attachment_model(context: @course, display_name: "test.docx", uploaded_data: fixture_file_upload("test.docx"), instfs_uuid: "doc2")
+      image2 = attachment_model(context: @course, display_name: "cn_image.jpg", uploaded_data: fixture_file_upload("cn_image.jpg"), instfs_uuid: "image2")
+      media2 = attachment_model(context: @course, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media2")
+
+      doc = attachment_model(context: @course, display_name: "test.docx", uploaded_data: fixture_file_upload("test.docx"), instfs_uuid: "doc", replacement_attachment_id: doc2)
+      image = attachment_model(context: @course, display_name: "cn_image.jpg", uploaded_data: fixture_file_upload("cn_image.jpg"), instfs_uuid: "image", replacement_attachment_id: image2)
+      media = attachment_model(context: @course, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media", replacement_attachment_id: media2)
+      Attachment.where(id: [doc, image, media]).destroy_all
+
+      file_urls = [
+        "/courses/#{@course.id}/files/#{doc.id}?wrap=1",
+        "/courses/#{@course.id}/files/#{image.id}/preview",
+        "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true",
+      ]
+      body = { user_uuid: @teacher.uuid, file_urls: }
+
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, body, {}, expected_status: 200)
+      json = JSON.parse(response.body)
+      expect(json).to eq({
+                           "instfs_ids" => { "/courses/#{@course.id}/files/#{image.id}/preview" => "image2" },
+                           "canvas_instfs_ids" => {
+                             "/courses/#{@course.id}/files/#{doc.id}?wrap=1" => "doc2",
+                             "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true" => "media2"
+                           }
+                         })
+    end
+
+    it "doesn't crash with bad urls" do
+      media = attachment_model(context: @course, display_name: "292.mp3", uploaded_data: fixture_file_upload("292.mp3"), instfs_uuid: "media", replacement_attachment_id: media)
+
+      file_urls = [
+        "/courseles?wrap=1",
+        "https://really-bad-url@",
+        "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true",
+      ]
+      body = { user_uuid: @teacher.uuid, file_urls: }
+
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, body, {}, expected_status: 200)
+      json = JSON.parse(response.body)
+      expect(json).to eq({
+                           "canvas_instfs_ids" => {
+                             "/media_attachments_iframe/#{media.id}?type=video&amp;embedded=true" => "media"
+                           }
+                         })
+    end
+
+    it "limits the number of file links returned" do
+      file_urls = []
+      101.times { |i| file_urls << "/courses/#{@course.id}/files/#{i}?wrap=1" }
+      body = { user_uuid: @teacher.uuid, file_urls:, location: "quiz/123" }
+      api_call(:post, "/api/v1/rce_linked_file_instfs_ids", { controller: "files", action: "rce_linked_file_instfs_ids", format: "json" }, body, {}, expected_status: 422)
+
+      json = JSON.parse(response.body)
+      expect(json).to eq({ "errors" => [{ "message" => "Too many file links requested.  A maximum of 100 file links can be processed per request." }] })
     end
   end
 

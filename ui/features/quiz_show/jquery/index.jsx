@@ -37,7 +37,7 @@ import '@canvas/message-students-dialog/jquery/message_students' /* messageStude
 import AssignmentExternalTools from '@canvas/assignments/react/AssignmentExternalTools'
 import DirectShareUserModal from '@canvas/direct-sharing/react/components/DirectShareUserModal'
 import DirectShareCourseTray from '@canvas/direct-sharing/react/components/DirectShareCourseTray'
-import ItemAssignToTray from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToTray'
+import ItemAssignToManager from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToManager'
 
 const I18n = useI18nScope('quizzes.show')
 
@@ -150,8 +150,14 @@ $(document).ready(function () {
     event.preventDefault()
     ensureStudentsLoaded(() => {
       const submissionList = ENV.QUIZ_SUBMISSION_LIST
-      const unsubmittedStudents = submissionList.UNSUBMITTED_STUDENTS
-      const submittedStudents = submissionList.SUBMITTED_STUDENTS
+      const unsubmittedStudents = submissionList.UNSUBMITTED_STUDENTS.map(p => ({
+        ...p,
+        id: p.id.toString(),
+      }))
+      const submittedStudents = submissionList.SUBMITTED_STUDENTS.map(p => ({
+        ...p,
+        id: p.id.toString(),
+      }))
       const haveTakenQuiz = I18n.t(
         'students_who_have_taken_the_quiz',
         'Students who have taken the quiz'
@@ -265,7 +271,7 @@ $(document).ready(function () {
 
   function renderItemAssignToTray(open, returnFocusTo, itemProps) {
     ReactDOM.render(
-      <ItemAssignToTray
+      <ItemAssignToManager
         open={open}
         onClose={() => {
           ReactDOM.unmountComponentAtNode(document.getElementById('assign-to-mount-point'))

@@ -16,24 +16,19 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useCallback, useRef, useState} from 'react'
+import React, {useCallback, useState} from 'react'
 import {useNode} from '@craftjs/core'
 
 import {IconButton} from '@instructure/ui-buttons'
 import {Menu, type MenuItemProps, type MenuItem} from '@instructure/ui-menu'
 import {Flex} from '@instructure/ui-flex'
-import {
-  IconLinkLine,
-  IconTextBackgroundColorLine,
-  IconButtonAndIconMakerLine,
-  IconBoxLine,
-} from '@instructure/ui-icons'
+import {IconLinkLine, IconButtonAndIconMakerLine, IconBoxLine} from '@instructure/ui-icons'
 
 import {LinkModal} from '../../../editor/LinkModal'
-import {ColorModal} from './ColorModal'
-
-import {isInstuiButtonColor} from './common'
-import type {ButtonBlockProps, ButtonSize, ButtonVariant} from './common'
+import {ColorModal} from '../../common/ColorModal'
+import {IconBackgroundColor} from '../../../../assets/internal-icons'
+import {isInstuiButtonColor} from './types'
+import type {ButtonBlockProps, ButtonSize, ButtonVariant} from './types'
 import {IconPopup} from '../../common/IconPopup'
 
 const ButtonBlockToolbar = () => {
@@ -128,7 +123,7 @@ const ButtonBlockToolbar = () => {
             withBorder={false}
             screenReaderLabel="Size"
           >
-            <IconBoxLine size="x-small" />
+            <IconBoxLine />
           </IconButton>
         }
         onSelect={handleSizeChange}
@@ -153,7 +148,7 @@ const ButtonBlockToolbar = () => {
             withBorder={false}
             screenReaderLabel="Style"
           >
-            <IconButtonAndIconMakerLine size="x-small" />
+            <IconButtonAndIconMakerLine />
           </IconButton>
         }
         onSelect={handleVariantChange}
@@ -181,10 +176,10 @@ const ButtonBlockToolbar = () => {
         disabled={props.variant === 'condensed'}
         onClick={handleColorButtonClick}
       >
-        <IconTextBackgroundColorLine size="x-small" />
+        <IconBackgroundColor size="x-small" />
       </IconButton>
 
-      <IconPopup />
+      <IconPopup iconName={props.iconName} />
 
       <LinkModal
         open={linkModalOpen}
@@ -196,6 +191,7 @@ const ButtonBlockToolbar = () => {
       <ColorModal
         open={colorModalOpen}
         color={props.color}
+        variant="button"
         onClose={handleCloseColorModal}
         onSubmit={handleColorChange}
       />

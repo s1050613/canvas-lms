@@ -141,6 +141,7 @@
 class GroupsController < ApplicationController
   before_action :get_context
   before_action :require_user, only: %w[index accept_invitation activity_stream activity_stream_summary]
+  before_action :check_limited_access_for_students, only: %i[create_file]
 
   include Api::V1::Attachment
   include Api::V1::Group
@@ -219,6 +220,8 @@ class GroupsController < ApplicationController
 
     includes = { include: params[:include] }
     groups_scope = @current_user.current_groups
+    page_has_instui_topnav
+
     respond_to do |format|
       format.html do
         groups_scope = groups_scope.where(context_type: params[:context_type]) if params[:context_type]
@@ -400,6 +403,7 @@ class GroupsController < ApplicationController
           add_crumb @group.short_name, named_context_url(@group, :context_url)
         end
         @context = @group
+        page_has_instui_topnav
         assign_localizer
         if @group.deleted? && @group.context
           flash[:notice] = t("notices.already_deleted", "That group has been deleted")

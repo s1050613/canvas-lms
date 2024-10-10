@@ -124,6 +124,7 @@ const renderDueDates = lockedItems => {
     sectionList = new SectionList(ENV.SECTION_LIST)
 
     dueDateList = new DueDateList(quizModel.get('assignment_overrides'), sectionList, quizModel)
+    quizModel.set('post_to_sis', $('#quiz_post_to_sis').prop('checked'))
 
     overrideView = window.overrideView = new DueDateOverrideView({
       el: '.js-assignment-overrides',
@@ -145,6 +146,16 @@ const renderDueDates = lockedItems => {
       overrideView.bind('tray:close', () => {
         $('#quiz_edit_wrapper .btn.save_quiz_button').prop('disabled', false)
         $('#quiz_edit_wrapper .btn.save_and_publish').prop('disabled', false)
+      })
+
+      $('#quiz_post_to_sis').on('change', e => {
+        const postToSISChecked = e.target.checked
+        quizModel.set('post_to_sis', postToSISChecked)
+
+        // Disabling this to not run the Post to SIS validations on check/uncheck
+        if (!ENV.FEATURES?.selective_release_edit_page) {
+          overrideView.render()
+        }
       })
     }
 
@@ -2270,14 +2281,7 @@ ready(function () {
       let overrides = overrideView.getOverrides()
       data['quiz[only_visible_to_overrides]'] = overrideView.setOnlyVisibleToOverrides()
       if (overrideView.containsSectionsWithoutOverrides() && !hasCheckedOverrides) {
-        const sections = overrideView.sectionsWithoutOverrides()
         var missingDateView = new MissingDateDialog({
-          validationFn() {
-            return sections
-          },
-          labelFn(section) {
-            return section.get('name')
-          },
           success() {
             missingDateView.$dialog.dialog('close').remove()
             missingDateView.remove()

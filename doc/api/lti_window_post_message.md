@@ -70,10 +70,34 @@ Returning postMessage includes the following properties:
 window.parent.postMessage({subject: 'lti.capabilities'}, '*')
 ```
 
+## lti.getPageContent
+
+Responds with an html object containing page content. This will contain all markup and children elements of the main content area of the page. Some content may be filtered from this response. The scope `https://canvas.instructure.com/lti/page_content/show` is required to use this functionality. Currently, only `Assignments` and `Wiki Pages` are supported by getPageContent, but support for additional pages is planned.
+
+**Required properties:**
+
+- subject: "lti.getPageContent"
+
+```js
+window.parent.postMessage({subject: 'lti.getPageContent'}, '*')
+```
+
+Returning postMessage includes the following properties:
+
+- subject: "lti.getPageContent"
+- pageContent: a string containing HTML
+
+```js
+{
+  subject: 'lti.getPageContent.response',
+  content: '<div>...</div>'
+}
+```
+
 ## lti.getPageSettings
 
 Responds with an object containing page settings. This includes the current locale, time zome, contrast settings, url to the active branding configuration file, and the width of the parent (Canvas) window.
-This is the same json file url provided by the [Brand Configs API](https://canvas.instructure.com/doc/api/brand_configs.html).
+This is the same json file url provided by the [Brand Configs API](brand_configs.html).
 
 **Required properties:**
 

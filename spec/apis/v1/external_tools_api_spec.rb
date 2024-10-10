@@ -27,6 +27,7 @@ describe ExternalToolsController, type: :request do
     before(:once) do
       course_with_teacher(active_all: true, user: user_with_pseudonym)
       @group = group_model(context: @course)
+      @tool_context = @course
     end
 
     it "shows an external tool" do
@@ -266,6 +267,7 @@ describe ExternalToolsController, type: :request do
       account_admin_user(active_all: true, user: user_with_pseudonym)
       @account = @user.account
       @group = group_model(context: @account)
+      @tool_context = @account
     end
 
     it "shows an external tool" do
@@ -452,6 +454,7 @@ describe ExternalToolsController, type: :request do
       ContextExternalTool.create!(
         context: account,
         consumer_key: "key",
+        developer_key: dev_key_model_1_3,
         shared_secret: "secret",
         name: "test tool",
         url: "http://www.tool.com/launch",
@@ -529,6 +532,28 @@ describe ExternalToolsController, type: :request do
                         {},
                         { expected_status: 400 })
         expect(json["message"]).to eq "Cannot have more than 2 favorited tools"
+      end
+
+      it "allows adding on_by_default tools even if there are already 2 favorited tools" do
+        tool2 = create_editor_tool(Account.default)
+        tool3 = create_editor_tool(Account.default)
+        Account.default.tap do |ra|
+          ra.settings[:rce_favorite_tool_ids] = { value: [tool2.global_id, tool3.global_id] }
+          ra.save!
+        end
+        Setting.set("rce_always_on_developer_key_ids", @root_tool.developer_key.global_id.to_s)
+
+        json = api_call(:post,
+                        "/api/v1/accounts/#{Account.default.id}/external_tools/rce_favorites/#{@root_tool.id}",
+                        { controller: "external_tools",
+                          action: "add_rce_favorite",
+                          format: "json",
+                          account_id: Account.default.id.to_s,
+                          id: @root_tool.id.to_s },
+                        {},
+                        {},
+                        { expected_status: 200 })
+        expect(json["rce_favorite_tool_ids"]).to include(@root_tool.id)
       end
 
       describe "handling deleted tools" do
@@ -794,14 +819,13 @@ describe ExternalToolsController, type: :request do
                       "#{type.singularize}_id": context.id.to_s },
                     post_hash)
     expect(context.context_external_tools.count).to eq 1
-
     et = context.context_external_tools.last
     expect(json).to eq example_json(et)
   end
 
   def update_call(context, successful: true)
     type = context.class.table_name
-    et = context.context_external_tools.create!(name: "test", consumer_key: "fakefake", shared_secret: "sofakefake", url: "http://www.example.com/ims/lti")
+    et = context.context_external_tools.create!(name: "test", consumer_key: "fakefake", shared_secret: "sofakefake", url: "http://www.example.com/ims/lti", unified_tool_id: "utid_12345")
 
     json = api_call(:put,
                     "/api/v1/#{type}/#{context.id}/external_tools/#{et.id}.json",
@@ -910,6 +934,7 @@ describe ExternalToolsController, type: :request do
     et.custom_fields = { key1: "val1", key2: "val2" }
     et.course_navigation = { :url => "http://www.example.com/ims/lti/course", :visibility => "admins", :text => "Course nav", "default" => "disabled" }
     et.account_navigation = { url: "http://www.example.com/ims/lti/account", text: "Account nav", custom_fields: { "key" => "value" } }
+    et.analytics_hub = { url: "http://www.example.com/ims/lti/resource", text: "analytics hub", display_type: "full_width", visibility: "admins" }
     et.user_navigation = { url: "http://www.example.com/ims/lti/user", text: "User nav" }
     et.editor_button = { url: "http://www.example.com/ims/lti/editor", icon_url: "/images/delete.png", selection_width: 50, selection_height: 50, text: "editor button" }
     et.homework_submission = { url: "http://www.example.com/ims/lti/editor", selection_width: 50, selection_height: 50, text: "homework submission" }
@@ -943,6 +968,7 @@ describe ExternalToolsController, type: :request do
     et.context_external_tool_placements.new(placement_type: opts[:placement]) if opts[:placement]
     et.allow_membership_service_access = opts[:allow_membership_service_access] if opts[:allow_membership_service_access]
     et.conference_selection = { url: "http://www.example.com/ims/lti/conference", icon_url: "/images/delete.png", text: "conference selection" }
+    et.unified_tool_id = "utid_12345"
     et.save!
     et
   end
@@ -1013,6 +1039,7 @@ describe ExternalToolsController, type: :request do
       "workflow_state" => "public",
       "vendor_help_link" => nil,
       "version" => "1.1",
+      "unified_tool_id" => "utid_12345",
       "deployment_id" => et&.deployment_id,
       "resource_selection" => {
         "enabled" => true,
@@ -1020,7 +1047,7 @@ describe ExternalToolsController, type: :request do
         "url" => "http://www.example.com/ims/lti/resource",
         "selection_height" => 50,
         "selection_width" => 50,
-        "label" => ""
+        "label" => "External Tool Eh"
       },
       "privacy_level" => "public",
       "editor_button" => {
@@ -1066,6 +1093,16 @@ describe ExternalToolsController, type: :request do
         "url" => "http://www.example.com/ims/lti/account",
         "custom_fields" => { "key" => "value" },
         "label" => "Account nav",
+        "selection_height" => 400,
+        "selection_width" => 800
+      },
+      "analytics_hub" => {
+        "enabled" => true,
+        "text" => "analytics hub",
+        "url" => "http://www.example.com/ims/lti/resource",
+        "visibility" => "admins",
+        "label" => "analytics hub",
+        "display_type" => "full_width",
         "selection_height" => 400,
         "selection_width" => 800
       },
@@ -1323,6 +1360,7 @@ describe ExternalToolsController, type: :request do
                                    end
     }
     example["is_rce_favorite"] = et.is_rce_favorite if et&.can_be_rce_favorite?
+    example["is_top_nav_favorite"] = et.top_nav_favorite_in_context?(@tool_context) if et&.can_be_top_nav_favorite?
     example
   end
 end

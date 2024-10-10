@@ -98,7 +98,7 @@ module WebMock::API
 end
 
 require "delayed/testing"
-Dir[Rails.root.join("spec/support/**/*.rb")].each { |f| require f }
+Rails.root.glob("spec/support/**/*.rb") { |f| require f }
 require "sharding_spec_helper"
 
 # nuke the db (say, if `rake db:migrate RAILS_ENV=test` created records),
@@ -220,6 +220,8 @@ module RSpec::Rails
         node.attr("checked") == "checked"
       elsif node.respond_to?(:checked?)
         node.checked?
+      else
+        node.attribute("checked")
       end
     end
   end
@@ -305,7 +307,11 @@ module RenderWithHelpers
   end
 
   def render(*args)
-    controller_class = ("#{@controller.controller_path.camelize}Controller".constantize rescue nil) || ApplicationController
+    controller_class = begin
+      "#{@controller.controller_path.camelize}Controller".constantize
+    rescue NameError
+      ApplicationController
+    end
 
     controller_class.instance_variable_set(:@js_env, nil)
     # this extends the controller's helper methods to the view
@@ -418,11 +424,7 @@ RSpec.configure do |config|
   config.fail_if_no_examples = true
   config.use_transactional_fixtures = true
   config.use_instantiated_fixtures = false
-  if $canvas_rails == "7.0"
-    config.fixture_path = Rails.root.join("spec/fixtures")
-  else
-    config.fixture_paths = [Rails.root.join("spec/fixtures")]
-  end
+  config.fixture_paths = [Rails.root.join("spec/fixtures")]
   config.infer_spec_type_from_file_location!
   config.raise_errors_for_deprecations!
   config.color = true
@@ -501,7 +503,6 @@ RSpec.configure do |config|
     ActiveRecord::Migration.verbose = false
     RequestStore.clear!
     MultiCache.reset
-    Course.enroll_user_call_count = 0
     TermsOfService.skip_automatic_terms_creation = true
     LiveEvents.clear_context!
     $spec_api_tokens = {}
@@ -1016,7 +1017,7 @@ module I18nStubs
 end
 I18n.backend.class.prepend(I18nStubs)
 
-Dir[Rails.root.join("{gems,vendor}/plugins/*/spec_canvas/spec_helper.rb")].each { |file| require file }
+Rails.root.glob("{gems,vendor}/plugins/*/spec_canvas/spec_helper.rb") { |file| require file }
 
 Shoulda::Matchers.configure do |config|
   config.integrate do |with|
@@ -1031,12 +1032,20 @@ Shoulda::Matchers.configure do |config|
 end
 
 module DeveloperKeyStubs
-  def get_special_key(default_key_name)
+  @@original_get_special_key = DeveloperKey.method(:get_special_key)
+
+  def original_get_special_key(*, **)
+    @@original_get_special_key.call(*, **)
+  end
+
+  def get_special_key(default_key_name, create_if_missing: true)
     Shard.birth.activate do
       @special_keys ||= {}
 
       # TODO: we have to do this because tests run in transactions
       testkey = DeveloperKey.where(name: default_key_name).first_or_initialize
+      return nil if testkey.new_record? && !create_if_missing
+
       testkey.auto_expire_tokens = false if testkey.new_record?
       testkey.sns_arn = "arn:aws:s3:us-east-1:12345678910:foo/bar"
       testkey.save! if testkey.changed?

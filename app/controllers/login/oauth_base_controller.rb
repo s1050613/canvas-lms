@@ -24,15 +24,15 @@ class Login::OAuthBaseController < ApplicationController
   before_action :forbid_on_files_domain
   before_action :run_login_hooks, :fix_ms_office_redirects, only: :new
 
-  def new
-    # a subclass might explicitly set the AAC, so that we don't need to infer
-    # it from the URL
-    return if @aac
+  protected
+
+  def aac
+    return @aac if @aac
 
     auth_type = params[:controller].sub(%r{^login/}, "")
     # ActionController::TestCase can't deal with aliased controllers, so we have to
     # explicitly specify this
-    auth_type = params[:auth_type] if Rails.env.test?
+    auth_type = params[:auth_type] if Rails.env.test? && params[:auth_type]
     scope = @domain_root_account.authentication_providers.active.where(auth_type:)
     @aac = if params[:id]
              scope.find(params[:id])
@@ -40,8 +40,6 @@ class Login::OAuthBaseController < ApplicationController
              scope.first!
            end
   end
-
-  protected
 
   def timeout_protection
     timeout_options = { raise_on_timeout: true, fallback_timeout_length: 10.seconds }
@@ -61,7 +59,7 @@ class Login::OAuthBaseController < ApplicationController
     false
   end
 
-  def find_pseudonym(unique_ids, provider_attributes = {})
+  def find_pseudonym(unique_ids, provider_attributes = {}, token = nil)
     unique_ids = unique_ids.first if unique_ids.is_a?(Array)
 
     unique_id = unique_ids.is_a?(Hash) ? unique_ids[@aac.login_attribute] : unique_ids
@@ -91,6 +89,7 @@ class Login::OAuthBaseController < ApplicationController
         PseudonymSession.create!(pseudonym, false)
       end
       session[:login_aac] = @aac.global_id
+      @aac.try(:persist_to_session, session, token) if token
 
       successful_login(user, pseudonym)
     else

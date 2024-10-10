@@ -23,6 +23,7 @@ import $ from 'jquery'
 import 'jquery-migrate'
 import RestrictedRadioButtons from '../RestrictedRadioButtons'
 import Folder from '../../../backbone/models/Folder'
+import { mergeTimeAndDate } from '@instructure/moment-utils'
 
 QUnit.module('RestrictedRadioButtons', {
   setup() {
@@ -154,12 +155,38 @@ test('returns the correct object to hide an item', function () {
 test('returns the correct object to restrict an item based on dates', function () {
   Simulate.change(this.restrictedRadioButtons.dateRange)
   this.restrictedRadioButtons.dateRange.checked = true
-  $(this.restrictedRadioButtons.unlock_at).data('unfudged-date', 'something else')
-  $(this.restrictedRadioButtons.lock_at).data('unfudged-date', 'something')
+  const startDate = new Date(2016, 5, 1)
+  const startTime = '5 AM'
+  const endDate = new Date(2016, 5, 4)
+  const endTime = '5 AM'
+  $(this.restrictedRadioButtons.unlock_at).data('unfudged-date', startDate)
+  $(this.restrictedRadioButtons.unlock_at_time).val(startTime)
+  $(this.restrictedRadioButtons.lock_at).data('unfudged-date', endDate)
+  $(this.restrictedRadioButtons.lock_at_time).val(endTime)
   const expectedObject = {
     hidden: false,
-    unlock_at: 'something else',
-    lock_at: 'something',
+    unlock_at: mergeTimeAndDate(startTime, startDate),
+    lock_at: mergeTimeAndDate(endTime, endDate),
+    locked: false,
+  }
+  deepEqual(
+    this.restrictedRadioButtons.extractFormValues(),
+    expectedObject,
+    'returns the correct object'
+  )
+})
+
+test('returns the correct object to restrict an item based on dates in the absence of times', function () {
+  Simulate.change(this.restrictedRadioButtons.dateRange)
+  this.restrictedRadioButtons.dateRange.checked = true
+  const startDate = new Date(2016, 5, 1)
+  const endDate = new Date(2016, 5, 4)
+  $(this.restrictedRadioButtons.unlock_at).data('unfudged-date', startDate)
+  $(this.restrictedRadioButtons.lock_at).data('unfudged-date', endDate)
+  const expectedObject = {
+    hidden: false,
+    unlock_at:  $(this.restrictedRadioButtons.unlock_at).data('unfudged-date'),
+    lock_at: $(this.restrictedRadioButtons.lock_at).data('unfudged-date'),
     locked: false,
   }
   deepEqual(

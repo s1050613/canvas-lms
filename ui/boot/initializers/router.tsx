@@ -27,12 +27,9 @@ import {
 import {Spinner} from '@instructure/ui-spinner'
 import accountGradingSettingsRoutes from '../../features/account_grading_settings/routes/accountGradingSettingsRoutes'
 import {RubricRoutes} from '../../features/rubrics/routes/rubricRoutes'
+import {NewLoginRoutes} from '../../features/new_login/routes/NewLoginRoutes'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import {QueryProvider} from '@canvas/query'
-import {
-  LearnerPassportLearnerRoutes,
-  LearnerPassportAdminRoutes,
-} from '../../features/learner_passport/routes/LearnerPassportRoutes'
 
 const portalRouter = createBrowserRouter(
   createRoutesFromElements(
@@ -44,6 +41,10 @@ const portalRouter = createBrowserRouter(
       <Route
         path="/users/:userId/masquerade"
         lazy={() => import('../../features/act_as_modal/react/ActAsModalRoute')}
+      />
+      <Route
+        path="/accounts"
+        lazy={() => import('../../features/account_manage/react/AccountListRoute')}
       />
 
       {accountGradingSettingsRoutes}
@@ -57,10 +58,9 @@ const portalRouter = createBrowserRouter(
           />
         ))}
 
-      {window.ENV.FEATURES.enhanced_rubrics && RubricRoutes}
+      {window.ENV.FEATURES.login_registration_ui_identity && NewLoginRoutes}
 
-      {window.ENV.FEATURES.learner_passport && LearnerPassportLearnerRoutes}
-      {window.ENV.FEATURES.learner_passport && LearnerPassportAdminRoutes}
+      {window.ENV.enhanced_rubrics_enabled && RubricRoutes}
 
       <Route path="*" element={<></>} />
     </Route>

@@ -114,9 +114,11 @@ export const inboxMessagesWrapper = (data, isSubmissionComments = false) => {
         inboxMessage.author = message?.author || User.mock(DEFAULT_USER_PROPERTIES)
         inboxMessage.recipients = []
         inboxMessage.body = message?.comment
+        inboxMessage.htmlBody = message?.htmlComment
         inboxMessage.attachmentsConnection = null
         inboxMessage.mediaComment = null
         contextName = message?.course?.contextName
+        canReply = canReply && message?.canReply
       } else {
         inboxMessage.id = message?.id
         inboxMessage._id = message?._id
@@ -125,6 +127,7 @@ export const inboxMessagesWrapper = (data, isSubmissionComments = false) => {
         inboxMessage.author = message?.author || User.mock(DEFAULT_USER_PROPERTIES)
         inboxMessage.recipients = message?.recipients
         inboxMessage.body = message?.body
+        inboxMessage.htmlBody = message?.htmlComment
         inboxMessage.attachmentsConnection = message?.attachmentsConnection
         inboxMessage.mediaComment = message?.mediaComment
         contextName = data?.contextName

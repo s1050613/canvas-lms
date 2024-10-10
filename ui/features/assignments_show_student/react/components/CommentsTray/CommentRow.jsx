@@ -23,14 +23,16 @@ import FriendlyDatetime from '@canvas/datetime/react/components/FriendlyDatetime
 import {getIconByType} from '@canvas/mime/react/mimeClassIconHelper'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
-import {SubmissionComment} from '@canvas/assignments/graphql/student/SubmissionComment'
+import {SubmissionHtmlComment} from '@canvas/assignments/graphql/student/SubmissionComment'
 import {MediaPlayer} from '@instructure/ui-media-player'
 import {Link} from '@instructure/ui-link'
+import sanitizeHtml from 'sanitize-html-with-tinymce'
+import {containsHtmlTags, formatMessage} from '@canvas/util/TextHelper'
 
 const I18n = useI18nScope('assignments_2')
 
 export default function CommentRow(props) {
-  const {author, mediaObject, read} = props.comment
+  const {author, mediaObject, read, htmlComment} = props.comment
   let mediaTracks = null
   if (mediaObject) {
     mediaObject.mediaSources.forEach(mediaSource => {
@@ -74,9 +76,12 @@ export default function CommentRow(props) {
             dateTime={props.comment.updatedAt}
           />
         </Text>
-        <Text color={props.comment._id === 'pending' ? 'secondary' : null} wrap="break-word">
-          {props.comment.comment}
-        </Text>
+        <Text
+          color={props.comment._id === 'pending' ? 'secondary' : null}
+          wrap="break-word"
+          data-testid="commentContent"
+          dangerouslySetInnerHTML={{__html: containsHtmlTags(htmlComment) ? sanitizeHtml(htmlComment) : formatMessage(htmlComment)}}
+        />
         {props.comment.attachments.map(attachment => (
           <Link
             key={attachment._id}
@@ -95,5 +100,5 @@ export default function CommentRow(props) {
 }
 
 CommentRow.propTypes = {
-  comment: SubmissionComment.shape.isRequired,
+  comment: SubmissionHtmlComment.shape.isRequired,
 }

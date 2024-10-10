@@ -21,7 +21,7 @@
 describe Pseudonym do
   it "creates a new instance given valid attributes" do
     user_model
-    expect { factory_with_protected_attributes(Pseudonym, valid_pseudonym_attributes) }.to change(Pseudonym, :count).by(1)
+    expect { Pseudonym.create!(valid_pseudonym_attributes) }.to change(Pseudonym, :count).by(1)
   end
 
   it "allows single character usernames" do
@@ -87,6 +87,9 @@ describe Pseudonym do
     ap = Account.default.authentication_providers.create!(auth_type: "microsoft", tenant: "microsoft")
     p = u.pseudonyms.create!(unique_id: "a@b.com", authentication_provider: ap)
     expect(p.login_attribute).to eq "sub"
+
+    p.update!(authentication_provider_id: nil)
+    expect(p.reload.login_attribute).to be_nil
   end
 
   it "finds the correct pseudonym for logins" do

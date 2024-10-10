@@ -18,7 +18,12 @@
 
 import React from 'react'
 import {shallow} from 'enzyme'
-import {TopNavigationTools, MobileTopNavigationTools} from '../TopNavigationTools'
+import {
+  TopNavigationTools,
+  MobileTopNavigationTools,
+  handleToolIconError,
+} from '../TopNavigationTools'
+import type {Tool} from '@canvas/global/env/EnvCommon'
 
 describe('TopNavigationTools', () => {
   it('renders', () => {
@@ -110,7 +115,26 @@ describe('handleToolClick', () => {
     const wrapper = shallow(
       <TopNavigationTools tools={[tool]} handleToolLaunch={handleToolLaunch} />
     )
-    wrapper.find('Button').simulate('click', {target: {dataset: {toolId: '1'}}})
+    wrapper.find('IconButton').simulate('click', {target: {dataset: {toolId: '1'}}})
     expect(handleToolLaunch).toHaveBeenCalledWith(tool)
+  })
+})
+
+describe('handleToolIconError', () => {
+  it('uses default tool icon', () => {
+    const tool = {
+      id: '1',
+      title: 'Tool 1',
+      pinned: true,
+    }
+    const event = {
+      target: {
+        src: '',
+      },
+    }
+
+    handleToolIconError(tool)(event)
+
+    expect(event.target.src).toBe('/lti/tool_default_icon?name=T')
   })
 })

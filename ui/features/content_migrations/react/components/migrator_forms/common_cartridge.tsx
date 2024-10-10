@@ -30,16 +30,19 @@ type CommonCartridgeImporterProps = {
   onSubmit: onSubmitMigrationFormCallback
   onCancel: () => void
   fileUploadProgress: number | null
+  isSubmitting: boolean
 }
 
 const CommonCartridgeImporter = ({
   onSubmit,
   onCancel,
   fileUploadProgress,
+  isSubmitting,
 }: CommonCartridgeImporterProps) => {
   const [file, setFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState<boolean>(false)
   const [questionBankError, setQuestionBankError] = useState<boolean>(false)
+  const [isQuestionBankDisabled, setIsQuestionBankDisabled] = useState(false)
   const [questionBankSettings, setQuestionBankSettings] = useState<QuestionBankSettings | null>()
 
   const handleSubmit = useCallback(
@@ -69,7 +72,11 @@ const CommonCartridgeImporter = ({
 
   return (
     <>
-      <MigrationFileInput fileUploadProgress={fileUploadProgress} onChange={setFile} />
+      <MigrationFileInput
+        fileUploadProgress={fileUploadProgress}
+        onChange={setFile}
+        isSubmitting={isSubmitting}
+      />
       {fileError && (
         <p>
           <Text color="danger">{I18n.t('You must select a file to import content from')}</Text>
@@ -78,15 +85,20 @@ const CommonCartridgeImporter = ({
       <QuestionBankSelector
         onChange={setQuestionBankSettings}
         questionBankError={questionBankError}
+        disable={isSubmitting || isQuestionBankDisabled}
+        notCompatible={isQuestionBankDisabled}
+        questionBankSettings={questionBankSettings}
       />
       <CommonMigratorControls
         canSelectContent={true}
+        isSubmitting={isSubmitting}
         canImportAsNewQuizzes={ENV.NEW_QUIZZES_IMPORT}
         canOverwriteAssessmentContent={true}
         canAdjustDates={true}
         onSubmit={handleSubmit}
         onCancel={onCancel}
         fileUploadProgress={fileUploadProgress}
+        setIsQuestionBankDisabled={setIsQuestionBankDisabled}
       />
     </>
   )

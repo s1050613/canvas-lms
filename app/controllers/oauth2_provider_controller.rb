@@ -36,7 +36,16 @@ class OAuth2ProviderController < ApplicationController
 
     scopes = (params[:scope] || params[:scopes] || "").split
 
-    provider = Canvas::OAuth::Provider.new(params[:client_id], params[:redirect_uri], scopes, params[:purpose])
+    provider = Canvas::OAuth::Provider.new(
+      params[:client_id],
+      params[:redirect_uri],
+      scopes,
+      params[:purpose],
+      pkce: {
+        code_challenge: params[:code_challenge],
+        code_challenge_method: params[:code_challenge_method]
+      }
+    )
 
     raise Canvas::OAuth::RequestError, :invalid_client_id unless provider.has_valid_key?
     raise Canvas::OAuth::RequestError, :invalid_redirect unless provider.has_valid_redirect?
@@ -139,7 +148,11 @@ class OAuth2ProviderController < ApplicationController
 
     granter = case grant_type
               when "authorization_code"
-                Canvas::OAuth::GrantTypes::AuthorizationCode.new(client_id, secret, params)
+                if Canvas::OAuth::PKCE.use_pkce_in_token?(params)
+                  Canvas::OAuth::GrantTypes::AuthorizationCodeWithPKCE.new(client_id, secret, params)
+                else
+                  Canvas::OAuth::GrantTypes::AuthorizationCode.new(client_id, secret, params)
+                end
               when "refresh_token"
                 Canvas::OAuth::GrantTypes::RefreshToken.new(client_id, secret, params)
               when "client_credentials"
@@ -200,13 +213,13 @@ class OAuth2ProviderController < ApplicationController
     commons_dk_id = Setting.get("commons_developer_key_id", nil)
     if commons_dk_id.present? && commons_dk_id.to_s == provider.key.global_id.to_s
       case provider.redirect_uri
-      when /commons\.ca-central\.canvaslms\.com/
+      when /commons\.ca-central\.canvaslms\.com/, /commons-yul-(prod|beta)\.instructure\.com/
         mt "Instructure hosts Canvas Commons in the region chosen by your institution, which is Canada. This means that when you use Canvas Commons your personal data will be stored and processed in Canada. These personal data elements include: name, email address, Canvas User ID, Canvas login name, Canvas Avatar, IP Address, Canvas Commons resources favorited by you, and comments you make to any resources in Canvas Commons. You can find more information about Instructure’s privacy practices [here](%{url}).", url: "https://www.instructure.com/policies/privacy"
-      when /commons\.eu-central\.canvaslms\.com/
+      when /commons\.eu-central\.canvaslms\.com/, /commons-fra-(prod|beta)\.instructure\.com/
         mt "Instructure hosts Canvas Commons in the region chosen by your institution, which is Europe. This means that when you use Canvas Commons your personal data will be stored and processed in Germany. These personal data elements include: name, email address, Canvas User ID, Canvas login name, Canvas Avatar, IP Address, Canvas Commons resources favorited by you, and comments you make to any resources in Canvas Commons. You can find more information about Instructure’s privacy practices [here](%{url}).", url: "https://www.instructure.com/policies/privacy"
-      when /commons\.sydney\.canvaslms\.com/
+      when /commons\.sydney\.canvaslms\.com/, /commons-syd-(prod|beta)\.instructure\.com/
         mt "Instructure hosts Canvas Commons in the region chosen by your institution, which is Australia. This means that when you use Canvas Commons your personal data will be stored and processed in Australia. These personal data elements include: name, email address, Canvas User ID, Canvas login name, Canvas Avatar, IP Address, Canvas Commons resources favorited by you, and comments you make to any resources in Canvas Commons. You can find more information about Instructure’s privacy practices [here](%{url}).", url: "https://www.instructure.com/policies/privacy"
-      when /commons\.singapore\.canvaslms\.com/
+      when /commons\.singapore\.canvaslms\.com/, /commons-sin-(prod|beta)\.instructure\.com/
         mt "Instructure hosts Canvas Commons in the region chosen by your institution, which is Asia Pacific. This means that when you use Canvas Commons your personal data will be stored and processed in Singapore. These personal data elements include: name, email address, Canvas User ID, Canvas login name, Canvas Avatar, IP Address, Canvas Commons resources favorited by you, and comments you make to any resources in Canvas Commons. You can find more information about Instructure’s privacy practices [here](%{url}).", url: "https://www.instructure.com/policies/privacy"
       else
         mt "Instructure hosts Canvas Commons in the region chosen by your institution, which is the US. This means that when you use Canvas Commons your personal data will be stored and processed in the United States. These personal data elements include: name, email address, Canvas User ID, Canvas login name, Canvas Avatar, IP Address, Canvas Commons resources favorited by you, and comments you make to any resources in Canvas Commons. You can find more information about Instructure’s privacy practices [here](%{url}).", url: "https://www.instructure.com/policies/privacy"

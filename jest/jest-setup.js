@@ -25,6 +25,7 @@ import filterUselessConsoleMessages from '@instructure/filter-console-messages'
 import rceFormatMessage from '@instructure/canvas-rce/es/format-message'
 import {up as configureDateTime} from '@canvas/datetime/configureDateTime'
 import {up as configureDateTimeMomentParser} from '@canvas/datetime/configureDateTimeMomentParser'
+import {up as installNodeDecorations} from '../ui/boot/initializers/installNodeDecorations'
 import {useTranslations} from '@canvas/i18n'
 import MockBroadcastChannel from './MockBroadcastChannel'
 
@@ -64,8 +65,11 @@ const ignoredWarnings = [
 
 global.console = {
   log: console.log,
-  error: error => {
-    if (ignoredErrors.some(regex => regex.test(error))) {
+  error: (error, ...rest) => {
+    if (
+      ignoredErrors.some(regex => regex.test(error)) ||
+      ignoredErrors.some(regex => regex.test(rest))
+    ) {
       return
     }
     globalError(error)
@@ -103,6 +107,7 @@ document.documentElement.setAttribute('dir', 'ltr')
 
 configureDateTime()
 configureDateTimeMomentParser()
+installNodeDecorations()
 
 // because everyone implements `flat()` and `flatMap()` except JSDOM 🤦🏼‍♂️
 if (!Array.prototype.flat) {
@@ -138,6 +143,10 @@ if (!Array.prototype.flatMap) {
 require('@instructure/ui-themes')
 
 // set up mocks for native APIs
+if (!('alert' in window)) {
+  window.alert = () => {}
+}
+
 if (!('MutationObserver' in window)) {
   Object.defineProperty(window, 'MutationObserver', {
     value: require('@sheerun/mutationobserver-shim'),
@@ -209,7 +218,11 @@ if (!('scrollIntoView' in window.HTMLElement.prototype)) {
 }
 
 // Suppress errors for APIs that exist in JSDOM but aren't implemented
-Object.defineProperty(window, 'scrollTo', {configurable: true, writable: true, value: () => {}})
+Object.defineProperty(window, 'scrollTo', {
+  configurable: true,
+  writable: true,
+  value: () => {},
+})
 
 const locationProperties = Object.getOwnPropertyDescriptors(window.location)
 Object.defineProperty(window, 'location', {
@@ -288,5 +301,21 @@ if (!('Worker' in window)) {
         this.dispatchEvent = () => {}
       }
     },
+  })
+}
+
+if (!Range.prototype.getBoundingClientRect) {
+  Range.prototype.getBoundingClientRect = () => ({
+    bottom: 0,
+    height: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    width: 0,
+  })
+  Range.prototype.getClientRects = () => ({
+    item: () => null,
+    length: 0,
+    [Symbol.iterator]: jest.fn(),
   })
 }

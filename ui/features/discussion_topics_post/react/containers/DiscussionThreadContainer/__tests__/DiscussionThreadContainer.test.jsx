@@ -39,12 +39,18 @@ jest.mock('../../../utils', () => ({
   responsiveQuerySizes: () => ({desktop: {maxWidth: '1024px'}}),
 }))
 
+jest.mock('../../../utils/constants', () => ({
+  ...jest.requireActual('../../../utils/constants'),
+  HIGHLIGHT_TIMEOUT: 0,
+}))
+
 describe('DiscussionThreadContainer', () => {
   const onFailureStub = jest.fn()
   const onSuccessStub = jest.fn()
   const openMock = jest.fn()
   beforeAll(() => {
     delete window.location
+    window.location = {search: ''}
     window.open = openMock
     window.ENV = {
       course_id: '1',
@@ -101,17 +107,17 @@ describe('DiscussionThreadContainer', () => {
   })
 
   it('should not render reply button if reply permission is false', () => {
-    const {queryByTestId} = setup(
+    const {container} = setup(
       defaultProps({
         discussionEntryOverrides: {permissions: DiscussionEntryPermissions.mock({reply: false})},
       })
     )
-    expect(queryByTestId('threading-toolbar-reply')).not.toBeInTheDocument()
+    expect(container.querySelector('svg[name="IconDiscussionReply2"]')).not.toBeInTheDocument()
   })
 
   it('should render reply button if reply permission is true', () => {
-    const {queryByTestId} = setup(defaultProps())
-    expect(queryByTestId('threading-toolbar-reply')).toBeInTheDocument()
+    const {container} = setup(defaultProps())
+    expect(container.querySelector('svg[name="IconDiscussionReply2"]')).toBeInTheDocument()
   })
 
   it('should not render quote button if reply permission is false', () => {
@@ -189,7 +195,10 @@ describe('DiscussionThreadContainer', () => {
       window.location = {assign: jest.fn()}
       const setHighlightEntryId = jest.fn()
       const {getByTestId, getAllByText} = setup(
-        defaultProps({propOverrides: {setHighlightEntryId}}),
+        defaultProps({
+          propOverrides: {setHighlightEntryId},
+          discussionOverrides: {discussionType: 'threaded'},
+        }),
         updateDiscussionThreadReadStateMock({
           discussionEntryId: 'DiscussionEntry-default-mock',
           read: false,
@@ -204,6 +213,18 @@ describe('DiscussionThreadContainer', () => {
       fireEvent.click(getAllByText('Mark Thread as Unread')[0])
       expect(setHighlightEntryId.mock.calls.length).toBe(1)
       expect(setHighlightEntryId).toHaveBeenCalledWith('DiscussionEntry-default-mock')
+    })
+
+    it('Should not render Mark Thread as Unread and Read', () => {
+      const {getByTestId, queryByTestId} = setup(
+        defaultProps({
+          discussionOverrides: {discussionType: 'not_threaded'},
+        })
+      )
+
+      fireEvent.click(getByTestId('thread-actions-menu'))
+      expect(queryByTestId('markThreadAsRead')).toBeNull()
+      expect(queryByTestId('markThreadAsUnRead')).toBeNull()
     })
 
     describe('error handling', () => {
@@ -273,7 +294,10 @@ describe('DiscussionThreadContainer', () => {
       fireEvent.click(getByTestId('inSpeedGrader'))
 
       await waitFor(() => {
-        expect(openMock).toHaveBeenCalledWith(getSpeedGraderUrl('2'), `_blank`)
+        expect(openMock).toHaveBeenCalledWith(
+          getSpeedGraderUrl('2', 'DiscussionEntry-default-mock'),
+          `_blank`
+        )
       })
     })
 

@@ -82,7 +82,7 @@ describe('ZipFileImporter', () => {
   it('renders button input', () => {
     renderComponent()
 
-    expect(screen.getByRole('button', {name: 'Choose File'})).toBeInTheDocument()
+    expect(screen.getByText('Choose File')).toBeInTheDocument()
   })
 
   it('renders text if no file is chosen', () => {
@@ -160,7 +160,18 @@ describe('ZipFileImporter', () => {
   })
 
   it('renders the progressbar info', async () => {
-    renderComponent({fileUploadProgress: 10})
+    renderComponent({isSubmitting: true, fileUploadProgress: 10})
     expect(screen.getByText('Uploading File')).toBeInTheDocument()
+  })
+
+  it('disable or hide inputs while uploading', async () => {
+    renderComponent({isSubmitting: true})
+    await waitFor(() => {
+      expect(screen.getByTestId('migrationFileUpload')).toBeDisabled()
+      expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled()
+      expect(screen.getByRole('button', {name: /Adding.../})).toBeDisabled()
+      expect(screen.queryByText('Search folders')).not.toBeInTheDocument()
+      expect(screen.queryByText('course files')).not.toBeInTheDocument()
+    })
   })
 })

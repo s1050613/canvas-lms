@@ -124,8 +124,12 @@ module SpeedGrader
         ) { |rep, others| others.each { |s| res[:context][:rep_for_student][s.id] = rep.id } }
 
       unless assignment.anonymize_students?
-        # Ensure that any test students are sorted last
-        students = students.sort_by { |r| (r.preferences[:fake_student] == true) ? 1 : 0 }
+        num_students = students.length
+        students = students.sort_by.with_index do |student, idx|
+          # Ensure that any test students are sorted last. sort_by is not stable,
+          # so return idx for real students to preserve their original order.
+          (student.preferences[:fake_student] == true) ? num_students + idx : idx
+        end
       end
 
       enrollments =
@@ -160,7 +164,7 @@ module SpeedGrader
         :user,
         :attachment_associations,
         :assignment,
-        :originality_reports
+        { originality_reports: :lti_link }
       ]
       includes << {
         all_submission_comments: {
@@ -179,6 +183,11 @@ module SpeedGrader
         else
           %i[name id sortable_name]
         end
+
+      # yes, this will arbitrarily pick the first enrollment in the course for the user,
+      # but it mirrors what CoursesHelper#user_type does, which we're now passing this value to
+      # in order to avoid an N+1 query problem
+      current_user_enrollments = { current_user.id => course.enrollments.find_by(user: current_user) }
 
       res[:context][:students] =
         students.map do |student|
@@ -290,6 +299,7 @@ module SpeedGrader
             missing
             late_policy_status
             word_count
+            partially_submitted?
           ]
           json =
             sub
@@ -346,7 +356,7 @@ module SpeedGrader
 
           if url_opts[:enable_annotations]
             url_opts[:disable_annotation_notifications] = assignment.post_manually? && !sub.posted?
-            url_opts[:enrollment_type] = canvadocs_user_role(course, current_user)
+            url_opts[:enrollment_type] = canvadocs_user_role(course, current_user, current_user_enrollments)
           end
 
           if quizzes_next_submission?

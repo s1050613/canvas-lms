@@ -363,6 +363,7 @@ class CoursesController < ApplicationController
   before_action :require_user_or_observer, only: [:user_index]
   before_action :require_context, only: %i[roster locks create_file ping confirm_action copy effective_due_dates offline_web_exports link_validator settings start_offline_web_export statistics user_progress]
   skip_after_action :update_enrollment_last_activity_at, only: [:enrollment_invitation, :activity_stream_summary]
+  before_action :check_limited_access_for_students, only: %i[create_file]
 
   include Api::V1::Course
   include Api::V1::Progress
@@ -397,7 +398,7 @@ class CoursesController < ApplicationController
   # @argument exclude_blueprint_courses [Boolean]
   #   When set, only return courses that are not configured as blueprint courses.
   #
-  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"grading_periods"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"course_image"|"banner_image"|"concluded"]
+  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"grading_periods"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"course_image"|"banner_image"|"concluded"|"post_manually"]
   #   - "needs_grading_count": Optional information to include with each Course.
   #     When needs_grading_count is given, and the current user has grading
   #     rights, the total number of submissions needing grading for all
@@ -490,6 +491,9 @@ class CoursesController < ApplicationController
   #     image has been set.
   #   - "concluded": Optional information to include with each Course. Indicates whether
   #     the course has been concluded, taking course and term dates into account.
+  #   - "post_manually": Optional information to include with each Course. Returns true if
+  #     the course post policy is set to Manually post grades. Returns false if the the course
+  #     post policy is set to Automatically post grades.
   #
   # @argument state[] [String, "unpublished"|"available"|"completed"|"deleted"]
   #   If set, only return courses that are in the given state(s).
@@ -624,7 +628,7 @@ class CoursesController < ApplicationController
   # @API List courses for a user
   # Returns a paginated list of active courses for this user. To view the course list for a user other than yourself, you must be either an observer of that user or an administrator.
   #
-  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"grading_periods"|term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"course_image"|"banner_image"|"concluded"]
+  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"grading_periods"|term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"course_image"|"banner_image"|"concluded"|"post_manually"]
   #   - "needs_grading_count": Optional information to include with each Course.
   #     When needs_grading_count is given, and the current user has grading
   #     rights, the total number of submissions needing grading for all
@@ -704,6 +708,9 @@ class CoursesController < ApplicationController
   #     image has been set.
   #   - "concluded": Optional information to include with each Course. Indicates whether
   #     the course has been concluded, taking course and term dates into account.
+  #   - "post_manually": Optional information to include with each Course. Returns true if
+  #     the course post policy is set to "Manually". Returns false if the the course post
+  #     policy is set to "Automatically".
   #
   # @argument state[] [String, "unpublished"|"available"|"completed"|"deleted"]
   #   If set, only return courses that are in the given state(s).
@@ -858,6 +865,11 @@ class CoursesController < ApplicationController
   # @argument course[course_format] [String]
   #   Optional. Specifies the format of the course. (Should be 'on_campus', 'online', or 'blended')
   #
+  # @argument course[post_manually] [Boolean]
+  #   Default is false.
+  #   When true, all grades in the course must be posted manually, and will not be automatically posted.
+  #   When false, all grades in the course will be automatically posted.
+  #
   # @argument enable_sis_reactivation [Boolean]
   #   When true, will first try to re-activate a deleted course with matching sis_course_id if possible.
   #
@@ -886,6 +898,12 @@ class CoursesController < ApplicationController
 
       sis_course_id = params[:course].delete(:sis_course_id)
       apply_assignment_group_weights = params[:course].delete(:apply_assignment_group_weights)
+
+      # params_for_create is used to build the course object
+      # since post_manually is not an actual attribute of the course object,
+      # we need to remove it from the params. We will use it later to
+      # apply the post policy to the course after the course is saved.
+      post_manually = params_for_create.delete(:post_manually) if params_for_create.key?(:post_manually)
 
       # accept end_at as an alias for conclude_at. continue to accept
       # conclude_at for legacy support, and return conclude_at only if
@@ -924,6 +942,7 @@ class CoursesController < ApplicationController
           @course.account = @sub_account if @sub_account
         end
       end
+
       @course ||= (@sub_account || @account).courses.build(params_for_create)
 
       if can_manage_sis
@@ -964,6 +983,11 @@ class CoursesController < ApplicationController
             # force the user to refresh the page after the job finishes to see the changes
             @course.sync_homeroom_participation
           end
+
+          # Cannot set the course PostPolicy until the course has saved a PostPolicy
+          # is a polymorphic association
+          @course.apply_post_policy!(post_manually: value_to_boolean(post_manually)) unless post_manually.nil?
+
           format.html { redirect_to @course }
           format.json do
             render json: course_json(
@@ -1176,7 +1200,9 @@ class CoursesController < ApplicationController
         if includes.include?("enrollments")
           enrollment_scope = @context.enrollments
                                      .where(user_id: users)
-                                     .preload(:course, :scores)
+                                     .preload(:course, :scores, :course_section)
+                                     .joins(:course_section)
+                                     .order("course_sections.name")
 
           enrollment_scope = if search_params[:enrollment_state]
                                enrollment_scope.where(workflow_state: search_params[:enrollment_state])
@@ -1447,6 +1473,9 @@ class CoursesController < ApplicationController
     else
       @context.complete
       if (success = @context.save)
+        if Account.site_admin.feature_enabled?(:default_account_grading_scheme) && @context.grading_standard_id.nil? && @context.root_account.grading_standard_id
+          @context.update!(grading_standard_id: @context.root_account.grading_standard_id)
+        end
         Auditors::Course.record_concluded(@context, @current_user, source: (api_request? ? :api : :manual))
         flash[:notice] = t("notices.concluded", "Course successfully concluded")
       else
@@ -1594,6 +1623,7 @@ class CoursesController < ApplicationController
                MSFT_SYNC_MAX_ENROLLMENT_OWNERS: MicrosoftSync::MembershipDiff::MAX_ENROLLMENT_OWNERS,
                COURSE_PACES_ENABLED: @context.enable_course_paces?,
                ARCHIVED_GRADING_SCHEMES_ENABLED: Account.site_admin.feature_enabled?(:archived_grading_schemes),
+               COURSE_PUBLISHED: @context.published?
              })
 
       set_tutorial_js_env
@@ -1768,7 +1798,9 @@ class CoursesController < ApplicationController
       :course_color,
       :friendly_name,
       :enable_course_paces,
-      :conditional_release
+      :conditional_release,
+      :show_student_only_module_id,
+      :show_teacher_only_module_id
     )
     changes = changed_settings(@course.changes, @course.settings, old_settings)
 
@@ -2144,7 +2176,7 @@ class CoursesController < ApplicationController
   #
   # Accepts the same include[] parameters as the list action plus:
   #
-  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"all_courses"|"permissions"|"course_image"|"banner_image"|"concluded"|"lti_context_id"]
+  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"all_courses"|"permissions"|"course_image"|"banner_image"|"concluded"|"lti_context_id"|"post_manually"]
   #   - "all_courses": Also search recently deleted courses.
   #   - "permissions": Include permissions the current user has
   #     for the course.
@@ -2155,6 +2187,8 @@ class CoursesController < ApplicationController
   #   - "concluded": Optional information to include with Course. Indicates whether
   #     the course has been concluded, taking course and term dates into account.
   #   - "lti_context_id": Include course LTI tool id.
+  #   - "post_manually": Include course post policy. If the post policy is manually post grades,
+  #     the value will be true. If the post policy is automatically post grades, the value will be false.
   #
   # @argument teacher_limit [Integer]
   #   The maximum number of teacher enrollments to show.
@@ -2279,7 +2313,8 @@ class CoursesController < ApplicationController
                                       long_name: "#{@context.name} - #{@context.short_name}",
                                       pages_url: polymorphic_url([@context, :wiki_pages]),
                                       is_student: @context.user_is_student?(@current_user),
-                                      is_instructor: @context.user_is_instructor?(@current_user) || @context.grants_right?(@current_user, session, :read_as_admin)
+                                      is_instructor: @context.user_is_instructor?(@current_user) || @context.grants_right?(@current_user, session, :read_as_admin),
+                                      is_published: @context.published?
                                     })
         # env.COURSE variables that only apply to classic courses
         unless @context.elementary_subject_course?
@@ -2355,7 +2390,7 @@ class CoursesController < ApplicationController
         end
 
         if @current_user && (@show_recent_feedback = @context.user_is_student?(@current_user))
-          @recent_feedback = @current_user.recent_feedback(contexts: @contexts) || []
+          @recent_feedback = @current_user.recent_feedback(contexts: @contexts, exclude_parent_assignment_submissions: @domain_root_account.feature_enabled?(:discussion_checkpoints)) || []
         end
 
         flash.now[:notice] = t("notices.updated", "Course was successfully updated.") if params[:for_reload]
@@ -2410,6 +2445,7 @@ class CoursesController < ApplicationController
           end
 
           # env variables that apply only to k5 subjects
+          grading_standard = @context.grading_standard_or_default
           js_env(
             CONTEXT_MODULE_ASSIGNMENT_INFO_URL: context_url(@context, :context_context_modules_assignment_info_url),
             PERMISSIONS: {
@@ -2428,8 +2464,9 @@ class CoursesController < ApplicationController
             OBSERVED_USERS_LIST: observed_users(@current_user, session, @context.id),
             TAB_CONTENT_ONLY: embed_mode,
             SHOW_IMMERSIVE_READER: show_immersive_reader?,
-            GRADING_SCHEME: @context.grading_standard_or_default.data,
-            POINTS_BASED: @context.grading_standard_or_default.points_based?,
+            GRADING_SCHEME: grading_standard.data,
+            POINTS_BASED: grading_standard.points_based?,
+            SCALING_FACTOR: grading_standard.scaling_factor,
             RESTRICT_QUANTITATIVE_DATA: @context.restrict_quantitative_data?(@current_user)
           )
 
@@ -3008,6 +3045,11 @@ class CoursesController < ApplicationController
   # @argument course[conditional_release] [Boolean]
   #   Enable or disable individual learning paths for students based on assessment
   #
+  # @argument course[post_manually] [Boolean]
+  #   When true, all grades in the course will be posted manually.
+  #   When false, all grades in the course will be automatically posted.
+  #   Use with caution as this setting will override any assignment level post policy.
+  #
   # @argument override_sis_stickiness [boolean]
   #   Default is true. If false, any fields containing “sticky” changes will not be updated.
   #   See SIS CSV Format documentation for information on which fields can have SIS stickiness
@@ -3130,6 +3172,14 @@ class CoursesController < ApplicationController
         return unless authorized_action?(@course, @current_user, :manage_grades)
 
         update_grade_passback_setting(grade_passback_setting)
+      end
+
+      if params_for_update.key?(:post_manually)
+        @course.apply_post_policy!(post_manually: value_to_boolean(params_for_update[:post_manually]))
+
+        # attributes in params_for_update will be applied to the course
+        # since post_manually is not an attribute on the Course model, it needs to be removed
+        params_for_update.delete :post_manually
       end
 
       unless @course.account.grants_right? @current_user, session, :manage_storage_quotas
@@ -3269,8 +3319,8 @@ class CoursesController < ApplicationController
         end
       end
 
-      if params[:override_sis_stickiness] && !value_to_boolean(params[:override_sis_stickiness])
-        params_for_update -= [*@course.stuck_sis_fields]
+      if params.key?(:override_sis_stickiness) && !value_to_boolean(params[:override_sis_stickiness])
+        params_for_update = params_for_update.except(*@course.stuck_sis_fields)
       end
 
       @course.attributes = params_for_update
@@ -3431,6 +3481,9 @@ class CoursesController < ApplicationController
         when :claim
           Auditors::Course.record_claimed(@course, @current_user, opts)
         when :complete
+          if Account.site_admin.feature_enabled?(:default_account_grading_scheme) && @course.grading_standard_id.nil? && @course.root_account.grading_standard_id
+            @course.update!(grading_standard_id: @course.root_account.grading_standard_id)
+          end
           Auditors::Course.record_concluded(@course, @current_user, opts)
         when :delete
           Auditors::Course.record_deleted(@course, @current_user, opts)
@@ -4001,6 +4054,7 @@ class CoursesController < ApplicationController
     preloads = %i[account root_account]
     preload_teachers(courses) if includes.include?("teachers")
     preloads << :grading_standard if includes.include?("total_scores")
+    preloads << :default_post_policy if includes.include?("post_manually")
     preloads << :account if includes.include?("subaccount") || includes.include?("account")
     if includes.include?("current_grading_period_scores") || includes.include?("grading_periods")
       preloads << { enrollment_term: { grading_period_group: :grading_periods } }
@@ -4215,7 +4269,8 @@ class CoursesController < ApplicationController
       :friendly_name,
       :enable_course_paces,
       :default_due_time,
-      :conditional_release
+      :conditional_release,
+      :post_manually
     )
   end
 

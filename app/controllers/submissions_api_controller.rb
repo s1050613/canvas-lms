@@ -219,6 +219,7 @@ class SubmissionsApiController < ApplicationController
                                              rubric_assessments_read_state
                                              mark_rubric_assessments_read
                                              mark_submission_item_read]
+  before_action :check_limited_access_for_students, only: %i[create_file]
   include Api::V1::Progress
   include Api::V1::Submission
   include Submissions::ShowHelper
@@ -227,7 +228,7 @@ class SubmissionsApiController < ApplicationController
   #
   # A paginated list of all existing submissions for an assignment.
   #
-  # @argument include[] [String, "submission_history"|"submission_comments"|"rubric_assessment"|"assignment"|"visibility"|"course"|"user"|"group"|"read_status"]
+  # @argument include[] [String, "submission_history"|"submission_comments"|"submission_html_comments"|"rubric_assessment"|"assignment"|"visibility"|"course"|"user"|"group"|"read_status"|"student_entered_score"]
   #   Associations to include with the group.  "group" will add group_id and group_name.
   #
   # @argument grouped [Boolean]
@@ -355,7 +356,7 @@ class SubmissionsApiController < ApplicationController
   #   Determines whether ordered results are returned in ascending or descending
   #   order.  Defaults to "ascending".  Doesn't affect results for "grouped" mode.
   #
-  # @argument include[] [String, "submission_history"|"submission_comments"|"rubric_assessment"|"assignment"|"total_scores"|"visibility"|"course"|"user"|"sub_assignment_submissions"]
+  # @argument include[] [String, "submission_history"|"submission_comments"|"submission_html_comments"|"rubric_assessment"|"assignment"|"total_scores"|"visibility"|"course"|"user"|"sub_assignment_submissions"|"student_entered_score"]
   #   Associations to include with the group. `total_scores` requires the
   #   `grouped` argument.
   #
@@ -622,7 +623,7 @@ class SubmissionsApiController < ApplicationController
   #
   # Get a single submission, based on user id.
   #
-  # @argument include[] [String, "submission_history"|"submission_comments"|"rubric_assessment"|"full_rubric_assessment"|"visibility"|"course"|"user"|"read_status"]
+  # @argument include[] [String, "submission_history"|"submission_comments"|"submission_html_comments"|"rubric_assessment"|"full_rubric_assessment"|"visibility"|"course"|"user"|"read_status"|"student_entered_score"]
   #   Associations to include with the group.
   def show
     bulk_load_attachments_and_previews([@submission])
@@ -925,7 +926,9 @@ class SubmissionsApiController < ApplicationController
           custom_status = @context.custom_grade_statuses.find(submission[:custom_grade_status_id])
         end
 
-        @submissions.each do |sub|
+        @submissions.each do |original_sub|
+          sub = effective_submission(original_sub, submission[:sub_assignment_tag])
+
           if custom_status
             sub.custom_grade_status = custom_status
           elsif submission.key?(:late_policy_status)
@@ -1038,6 +1041,19 @@ class SubmissionsApiController < ApplicationController
       end
       render json:
     end
+  end
+
+  def effective_submission(sub, sub_assignment_tag)
+    assignment = sub.assignment
+
+    return sub unless sub_assignment_tag.present?
+    return sub unless assignment.checkpoints_parent?
+
+    sub_assignment = assignment.find_checkpoint(sub_assignment_tag)
+
+    return sub if sub_assignment.nil?
+
+    sub_assignment.all_submissions.find_by(user: sub.user) || sub
   end
 
   # @API Grade or comment on a submission by anonymous id
@@ -1332,7 +1348,7 @@ class SubmissionsApiController < ApplicationController
     end
 
     assignment_ids = grade_data.keys
-    @assignments = api_find_all(@context.assignments.active, assignment_ids)
+    @assignments = api_find_all(@context.assignments_scope, assignment_ids)
 
     unless @assignments.all?(&:published?) &&
            @context.grants_right?(@current_user, session, :manage_grades)

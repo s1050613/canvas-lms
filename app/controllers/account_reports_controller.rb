@@ -297,6 +297,11 @@ class AccountReportsController < ApplicationController
       raise ActiveRecord::RecordNotFound unless available_reports.include? params[:report]
 
       parameters = params[:parameters]&.to_unsafe_h
+      enrollment_term_id = parameters&.dig("enrollment_term_id") || parameters&.dig("enrollment_term")
+      if enrollment_term_id.present? && !valid_enrollment_term_id?(enrollment_term_id)
+        return render json: { error: "invalid enrollment_term_id '#{enrollment_term_id}'" }, status: :bad_request
+      end
+
       report = @account.account_reports.build(user: @current_user, report_type: params[:report], parameters:)
       report.workflow_state = :created
       report.progress = 0
@@ -304,6 +309,10 @@ class AccountReportsController < ApplicationController
       report.run_report
       render json: account_report_json(report, @current_user)
     end
+  end
+
+  def valid_enrollment_term_id?(enrollment_term_id)
+    enrollment_term_id == "active_terms" || api_find_all(@account.root_account.enrollment_terms, enrollment_term_id.split(",")).exists?
   end
 
   def type_scope

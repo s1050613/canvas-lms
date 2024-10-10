@@ -43,11 +43,13 @@ describe('CourseCopyImporter', () => {
           {
             id: '0',
             label: 'Mathmatics',
+            term: 'Default term',
             blueprint: true,
           },
           {
             id: '1',
             label: 'Biology',
+            term: 'Other term',
             blueprint: false,
           },
         ],
@@ -64,6 +66,16 @@ describe('CourseCopyImporter', () => {
       expect(doFetchApi).toHaveBeenCalledWith({path: '/users/0/manageable_courses?term=math'})
     })
     expect(screen.getByText('Mathmatics')).toBeInTheDocument()
+  })
+
+  it('searches for matching courses and display proper terms', async () => {
+    renderComponent()
+    await userEvent.type(screen.getByRole('combobox', {name: 'Search for a course'}), 'math')
+    await waitFor(() => {
+      expect(doFetchApi).toHaveBeenCalledWith({path: '/users/0/manageable_courses?term=math'})
+    })
+    expect(screen.getByText('Term: Default term')).toBeInTheDocument()
+    expect(screen.getByText('Term: Other term')).toBeInTheDocument()
   })
 
   it('searches for matching courses including concluded', async () => {
@@ -102,27 +114,58 @@ describe('CourseCopyImporter', () => {
   // So instead of mocking it here and testing the prop being passed to the mock
   // we're following the precedent and testing all the way to the child in this suite
   it('Renders BP settings import option if appropriate', async () => {
-    renderComponent()
+    const {getByLabelText} = renderComponent()
     await userEvent.type(screen.getByRole('combobox', {name: 'Search for a course'}), 'math')
     await userEvent.click(await screen.findByText('Mathmatics'))
-    await userEvent.click(screen.getByRole('radio', {name: 'All content'}))
+    await userEvent.click(getByLabelText(/All content/))
     await expect(await screen.getByText('Import Blueprint Course settings')).toBeInTheDocument()
   })
 
   it('Does not renders BP settings import option when the destination course is marked ineligible', async () => {
     window.ENV.SHOW_BP_SETTINGS_IMPORT_OPTION = false
-    renderComponent()
+    const {getByLabelText} = renderComponent()
     await userEvent.type(screen.getByRole('combobox', {name: 'Search for a course'}), 'math')
     await userEvent.click(await screen.findByText('Mathmatics'))
-    await userEvent.click(screen.getByRole('radio', {name: 'All content'}))
+    await userEvent.click(getByLabelText(/All content/))
     expect(screen.queryByText('Import Blueprint Course settings')).toBeNull()
   })
 
   it('Does not render BP settings import option when the selected course is not a blueprint', async () => {
-    renderComponent()
+    const {getByLabelText} = renderComponent()
     await userEvent.type(screen.getByRole('combobox', {name: 'Search for a course'}), 'biol')
     await userEvent.click(await screen.findByText('Biology'))
-    await userEvent.click(screen.getByRole('radio', {name: 'All content'}))
+    await userEvent.click(getByLabelText(/All content/))
     expect(screen.queryByText('Import Blueprint Course settings')).toBeNull()
+  })
+
+  it('disable inputs while uploading', async () => {
+    renderComponent({isSubmitting: true})
+    await waitFor(() => {
+      expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled()
+      expect(screen.getByRole('button', {name: /Adding.../})).toBeDisabled()
+      expect(screen.getByRole('combobox', {name: 'Search for a course'})).toBeDisabled()
+      expect(screen.getByRole('radio', {name: /All content/})).toBeDisabled()
+      expect(screen.getByRole('radio', {name: 'Select specific content'})).toBeDisabled()
+      expect(screen.getByRole('checkbox', {name: 'Adjust events and due dates'})).toBeDisabled()
+    })
+  })
+
+  it('disable "Adjust events and due dates" inputs while uploading', async () => {
+    const {getByRole, rerender, getByLabelText} = renderComponent()
+
+    await userEvent.click(getByRole('checkbox', {name: 'Adjust events and due dates'}))
+
+    rerender(<CourseCopyImporter onSubmit={onSubmit} onCancel={onCancel} isSubmitting={true} />)
+
+    await waitFor(() => {
+      expect(getByRole('radio', {name: 'Shift dates'})).toBeInTheDocument()
+      expect(getByRole('radio', {name: 'Shift dates'})).toBeDisabled()
+      expect(getByRole('radio', {name: 'Remove dates'})).toBeDisabled()
+      expect(getByLabelText('Select original beginning date')).toBeDisabled()
+      expect(getByLabelText('Select new beginning date')).toBeDisabled()
+      expect(getByLabelText('Select original end date')).toBeDisabled()
+      expect(getByLabelText('Select new end date')).toBeDisabled()
+      expect(getByRole('button', {name: 'Add substitution'})).toBeDisabled()
+    })
   })
 })

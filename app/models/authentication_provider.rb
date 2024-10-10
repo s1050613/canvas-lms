@@ -74,7 +74,7 @@ class AuthenticationProvider < ActiveRecord::Base
     false
   end
 
-  def self.enabled?(_account = nil)
+  def self.enabled?(_account = nil, _user = nil)
     true
   end
 
@@ -144,6 +144,10 @@ class AuthenticationProvider < ActiveRecord::Base
     Rails.root.join("app/views/shared/svg/_svg_icon_#{sti_name}.svg").exist?
   end
 
+  def visible_to?(_user)
+    true
+  end
+
   def login_attribute_for_pseudonyms
     nil
   end
@@ -193,7 +197,7 @@ class AuthenticationProvider < ActiveRecord::Base
   end
 
   def settings
-    read_attribute(:settings) || {}
+    super || {}
   end
 
   def federated_attributes=(value)
@@ -331,6 +335,7 @@ class AuthenticationProvider < ActiveRecord::Base
         account_users_to_activate.each(&:reactivate)
       when "sis_user_id", "integration_id"
         next if value.empty?
+        next if pseudonym.account.pseudonyms.where(sis_user_id: value).exists?
 
         pseudonym[attribute] = value
       when "display_name"
@@ -338,29 +343,35 @@ class AuthenticationProvider < ActiveRecord::Base
       when "email"
         next if value.empty?
 
-        cc = user.communication_channels.email.by_path(value).first
-        cc ||= user.communication_channels.email.new(path: value)
-        if self.class.supports_autoconfirmed_email? && federated_attributes.dig("email", "autoconfirm")
-          cc.workflow_state = "active"
-          autoconfirm = true
-        elsif cc.new_record?
-          cc.workflow_state = "unconfirmed"
-        end
-        if cc.changed?
-          cc.save!
-          cc.send_confirmation!(pseudonym.account) unless autoconfirm
+        autoconfirm = self.class.supports_autoconfirmed_email? && federated_attributes.dig("email", "autoconfirm")
+        Array.wrap(value).uniq.each do |email|
+          cc = user.communication_channels.email.by_path(email).first
+          cc ||= user.communication_channels.email.new(path: email)
+          if autoconfirm
+            cc.workflow_state = "active"
+          elsif cc.new_record?
+            cc.workflow_state = "unconfirmed"
+          end
+          if cc.changed?
+            cc.save!
+            cc.send_confirmation!(pseudonym.account) unless autoconfirm
+          end
         end
       when "locale"
-        # convert _ to -, be lenient about case, and perform fallbacks
-        value = value.tr("_", "-")
         lowercase_locales = I18n.available_locales.map { |locale| locale.to_s.downcase }
-        while value.include?("-")
-          break if lowercase_locales.include?(value.downcase)
 
-          value = value.sub(/(?:x-)?-[^-]*$/, "")
-        end
-        if (i = lowercase_locales.index(value.downcase))
-          user.locale = I18n.available_locales[i].to_s
+        Array.wrap(value).uniq.map do |locale|
+          # convert _ to -, be lenient about case
+          locale = locale.tr("_", "-")
+          while locale.include?("-")
+            break if lowercase_locales.include?(locale.downcase)
+
+            locale = locale.sub(/(?:x-)?-[^-]*$/, "")
+          end
+          if (i = lowercase_locales.index(locale.downcase))
+            user.locale = I18n.available_locales[i].to_s
+            break
+          end
         end
       else
         user.send(:"#{attribute}=", value)

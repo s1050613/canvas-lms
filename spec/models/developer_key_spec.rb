@@ -44,6 +44,91 @@ describe DeveloperKey do
     )
   end
 
+  describe "#tokens_expire_in" do
+    let(:developer_key) { DeveloperKey.new }
+
+    context "when the client is public" do
+      before do
+        allow(developer_key).to receive(:public_client?).and_return(true)
+      end
+
+      it "returns the token TTL from settings" do
+        expect(developer_key.tokens_expire_in).to eq(120.minutes)
+      end
+    end
+
+    context "when the client is a mobile app" do
+      before do
+        allow(developer_key).to receive(:mobile_app?).and_return(true)
+        allow(Canvas::Plugin).to receive(:find).with("sessions").and_return(double(settings: { mobile_timeout: 240 }))
+      end
+
+      it "returns the mobile timeout from session settings" do
+        expect(developer_key.tokens_expire_in).to eq(240.minutes)
+      end
+    end
+
+    context "when the client is neither public nor a mobile app" do
+      before do
+        allow(developer_key).to receive_messages(public_client?: false, mobile_app?: false)
+      end
+
+      it "returns nil" do
+        expect(developer_key.tokens_expire_in).to be_nil
+      end
+    end
+  end
+
+  describe "#confidential_client?" do
+    let(:developer_key) { DeveloperKey.new }
+
+    context "when client_type is confidential" do
+      it "returns true" do
+        developer_key.client_type = DeveloperKey::CONFIDENTIAL_CLIENT_TYPE
+        expect(developer_key.confidential_client?).to be true
+      end
+    end
+
+    context "when client_type is public" do
+      it "returns false" do
+        developer_key.client_type = DeveloperKey::PUBLIC_CLIENT_TYPE
+        expect(developer_key.confidential_client?).to be false
+      end
+    end
+
+    context "when client_type is nil" do
+      it "returns false" do
+        developer_key.client_type = nil
+        expect(developer_key.confidential_client?).to be false
+      end
+    end
+  end
+
+  describe "#public_client?" do
+    let(:developer_key) { DeveloperKey.new }
+
+    context "when client_type is public" do
+      it "returns true" do
+        developer_key.client_type = DeveloperKey::PUBLIC_CLIENT_TYPE
+        expect(developer_key.public_client?).to be true
+      end
+    end
+
+    context "when client_type is confidential" do
+      it "returns false" do
+        developer_key.client_type = DeveloperKey::CONFIDENTIAL_CLIENT_TYPE
+        expect(developer_key.public_client?).to be false
+      end
+    end
+
+    context "when client_type is nil" do
+      it "returns false" do
+        developer_key.client_type = nil
+        expect(developer_key.public_client?).to be false
+      end
+    end
+  end
+
   describe "#site_admin_service_auth?" do
     subject do
       developer_key_not_saved.update!(key_attributes)
@@ -81,6 +166,28 @@ describe DeveloperKey do
           let(:key_attributes) { super().merge(account: root_account) }
 
           it { is_expected.to be false }
+        end
+      end
+    end
+  end
+
+  context "validations" do
+    describe "client_type" do
+      context "when client_type is Confidential" do
+        it "does not raise an exception" do
+          expect { DeveloperKey.create!(client_type: DeveloperKey::CONFIDENTIAL_CLIENT_TYPE) }.to_not raise_error
+        end
+      end
+
+      context "when client_type is Public" do
+        it "does not raise an exception" do
+          expect { DeveloperKey.create!(client_type: DeveloperKey::PUBLIC_CLIENT_TYPE) }.to_not raise_error
+        end
+      end
+
+      context "when client_type is not valid" do
+        it "raises an exception" do
+          expect { DeveloperKey.create!(client_type: "invalid") }.to raise_error ActiveRecord::RecordInvalid
         end
       end
     end
@@ -132,7 +239,8 @@ describe DeveloperKey do
     include_context "lti_1_3_spec_helper"
 
     let(:shard_1_account) { @shard1.activate { account_model } }
-    let(:developer_key) { @shard1.activate { DeveloperKey.create!(root_account: shard_1_account) } }
+    let(:developer_key) { Account.site_admin.shard.activate { dev_key_model_1_3(account: Account.site_admin) } }
+    let(:shard_2_dev_key) { @shard2.activate { dev_key_model_1_3(account: shard_2_account) } }
     let(:shard_1_tool) do
       tool = nil
       @shard1.activate do
@@ -176,6 +284,8 @@ describe DeveloperKey do
     end
 
     describe "instrumentation" do
+      let(:developer_key) { @shard1.activate { dev_key_model_1_3(account: shard_1_account) } }
+
       def enable_external_tools
         developer_key.enable_external_tools!(account)
         Timecop.travel(10.seconds) do
@@ -185,7 +295,7 @@ describe DeveloperKey do
 
       before do
         developer_key
-        @shard1.activate { tool_configuration }
+        Account.site_admin.shard.activate { tool_configuration }
         allow(InstStatsd::Statsd).to receive(:increment)
         allow(InstStatsd::Statsd).to receive(:timing)
       end
@@ -237,9 +347,26 @@ describe DeveloperKey do
 
     describe "#restore_external_tools!" do
       context "when account is site admin" do
+        let(:shard_1_tool) do
+          tool = nil
+          @shard1.activate do
+            tool = ContextExternalTool.create!(
+              name: "shard 1 tool",
+              workflow_state: "public",
+              developer_key:,
+              context: shard_1_account,
+              url: "https://www.test.com",
+              consumer_key: "key",
+              shared_secret: "secret"
+            )
+            developer_key.developer_key_account_bindings.first.update(workflow_state: "on")
+          end
+
+          tool
+        end
+
         before do
           developer_key
-          @shard1.activate { tool_configuration }
           shard_1_tool.update!(root_account: shard_1_account)
           shard_2_tool.update!(root_account: shard_2_account)
 
@@ -264,7 +391,7 @@ describe DeveloperKey do
     describe "#disable_external_tools!" do
       before do
         developer_key
-        @shard1.activate { tool_configuration }
+        Account.site_admin.shard.activate { tool_configuration }
         shard_1_tool
         shard_2_tool
         disable_external_tools
@@ -312,7 +439,7 @@ describe DeveloperKey do
     describe "#enable_external_tools!" do
       before do
         developer_key
-        @shard1.activate { tool_configuration }
+        Account.site_admin.shard.activate { tool_configuration }
         shard_1_tool.update!(workflow_state: "disabled")
         shard_2_tool.update!(workflow_state: "disabled")
         @shard1.activate do
@@ -348,7 +475,7 @@ describe DeveloperKey do
       context "privacy_level is not set on tool_configuration" do
         let(:account) { shard_1_tool.root_account }
         let(:tool_configuration) do
-          tc = super()
+          tc = Account.site_admin.shard.activate { super() }
           tc.update!(privacy_level: nil)
           tc
         end
@@ -361,7 +488,7 @@ describe DeveloperKey do
 
     describe "#update_external_tools!" do
       def update_external_tools
-        @shard1.activate do
+        Account.site_admin.shard.activate do
           tool_configuration.settings["title"] = new_title
           tool_configuration.save!
           developer_key.update_external_tools!
@@ -373,13 +500,13 @@ describe DeveloperKey do
 
       before do
         developer_key
-        @shard1.activate { tool_configuration.update!(privacy_level: "anonymous") }
         shard_1_tool.update!(workflow_state: "disabled")
         shard_2_tool.update!(workflow_state: "disabled")
       end
 
       context "when site admin key" do
         before do
+          Account.site_admin.shard.activate { tool_configuration.update!(privacy_level: "anonymous") }
           developer_key.update!(account: nil)
           update_external_tools
           run_jobs
@@ -400,8 +527,43 @@ describe DeveloperKey do
       end
 
       context "when non-site admin key" do
+        let(:developer_key) { @shard1.activate { dev_key_model_1_3(account: shard_1_account) } }
+        let(:shard_2_dev_key) { @shard2.activate { dev_key_model_1_3(account: shard_2_account) } }
+        let(:shard_1_tool) do
+          tool = nil
+          @shard1.activate do
+            tool = ContextExternalTool.create!(
+              name: "shard 1 tool",
+              workflow_state: "public",
+              developer_key:,
+              context: shard_1_account,
+              url: "https://www.test.com",
+              consumer_key: "key",
+              shared_secret: "secret"
+            )
+          end
+          tool
+        end
+
+        let(:shard_2_tool) do
+          tool = nil
+          @shard2.activate do
+            tool = ContextExternalTool.create!(
+              name: "shard 2 tool",
+              workflow_state: "public",
+              developer_key: shard_2_dev_key,
+              context: shard_2_account,
+              url: "https://www.test.com",
+              consumer_key: "key",
+              shared_secret: "secret"
+            )
+          end
+          tool
+        end
+
+        let(:tool_configuration) { developer_key.tool_configuration }
+
         before do
-          developer_key.update!(account: shard_1_account)
           update_external_tools
           run_jobs
         end
@@ -420,8 +582,13 @@ describe DeveloperKey do
       end
 
       describe "when there are broken tools with no context" do
+        before do
+          developer_key
+          tool_configuration
+        end
+
         it "does not raise an error" do
-          tool = developer_key.context_external_tools.first
+          tool = @shard1.activate { ContextExternalTool.where(developer_key:).first }
           tool.save!
           ContextExternalTool
             .where(id: tool.id)
@@ -602,6 +769,20 @@ describe DeveloperKey do
       end
     end
 
+    context "when client_type is blank" do
+      it "sets the client type to 'Confidential'" do
+        key = DeveloperKey.create!
+        expect(key.client_type).to eq DeveloperKey::CONFIDENTIAL_CLIENT_TYPE
+      end
+    end
+
+    context "when the client_type is not blank" do
+      it "does not mutate the client type" do
+        key = DeveloperKey.create!(client_type: DeveloperKey::PUBLIC_CLIENT_TYPE)
+        expect(key.client_type).to eq DeveloperKey::PUBLIC_CLIENT_TYPE
+      end
+    end
+
     it "de-duplicates the scope list" do
       key = DeveloperKey.create!(
         scopes: [
@@ -652,7 +833,7 @@ describe DeveloperKey do
       stub_const("CanvasRails::Application", TokenScopesHelper::SpecHelper::MockCanvasRails::Application)
 
       routes_from_plugins = Set.new
-      Dir[Rails.root.join("{gems,vendor}/plugins/*/config/*routes.rb")].each do |plugin_path|
+      Rails.root.glob("{gems,vendor}/plugins/*/config/*routes.rb") do |plugin_path|
         CanvasRails::Application.reset_routes
         load plugin_path
         plugin_route_set = Set.new(CanvasRails::Application.routes.routes.map do |route|
@@ -680,6 +861,17 @@ describe DeveloperKey do
       TEXT
 
       expect(newly_added_routes).to be_empty, error_message
+    end
+
+    it "ensures scopes are sorted" do
+      error_message = <<~TEXT
+        The scopes in spec/lib/token_scopes/last_known_accepted_scopes.rb are not sorted.
+
+        Please sort them by path and then by verb.
+      TEXT
+
+      scopes = TokenScopesHelper::SpecHelper.last_known_accepted_scopes
+      expect(scopes).to eql(scopes.sort_by { |s| [s[1], s[0]] }), error_message
     end
 
     context "when api token scoping FF is enabled" do
@@ -808,7 +1000,7 @@ describe DeveloperKey do
     end
 
     context "when site admin" do
-      let(:key) { DeveloperKey.create!(account: nil) }
+      let(:key) { Shard.default.activate { dev_key_model_1_3(account: Account.site_admin) } }
 
       it "creates a binding on save" do
         expect(key.developer_key_account_bindings.find_by(account: Account.site_admin)).to be_present
@@ -827,14 +1019,13 @@ describe DeveloperKey do
         context "when developer key is an LTI key" do
           let(:shard_1_account) { @shard1.activate { account_model } }
           let(:shard_2_account) { @shard2.activate { account_model } }
-          let(:configuration) { Account.site_admin.shard.activate { tool_configuration } }
           let(:shard_1_tool) do
-            t = @shard1.activate { configuration.new_external_tool(shard_1_account) }
+            t = @shard1.activate { key.lti_registration.new_external_tool(shard_1_account) }
             t.save!
             t
           end
           let(:shard_2_tool) do
-            t = @shard2.activate { configuration.new_external_tool(shard_2_account) }
+            t = @shard2.activate { key.lti_registration.new_external_tool(shard_2_account) }
             t.save!
             t
           end
@@ -842,11 +1033,11 @@ describe DeveloperKey do
           before do
             shard_1_tool
             shard_2_tool
-            developer_key.update!(account: nil)
+            key.update!(account: nil)
           end
 
           it "destroys associated tools across all shards" do
-            developer_key.destroy
+            key.destroy
             run_jobs
             expect(subject).to be_empty
           end
@@ -854,7 +1045,7 @@ describe DeveloperKey do
           context "when tools are installed at the course level" do
             let(:shard_1_course) { shard_1_account.shard.activate { course_model(account: shard_1_account) } }
             let(:shard_1_course_tool) do
-              t = @shard1.activate { configuration.new_external_tool(shard_1_course) }
+              t = @shard1.activate { key.lti_registration.new_external_tool(shard_1_course) }
               t.save!
               t
             end
@@ -864,7 +1055,7 @@ describe DeveloperKey do
             end
 
             it "destroys associated tools across all shards" do
-              developer_key.destroy
+              key.destroy
               run_jobs
               expect(subject).to be_empty
             end
@@ -886,8 +1077,9 @@ describe DeveloperKey do
         specs_require_sharding
 
         let(:account) { account_model }
+        let(:developer_key) { dev_key_model_1_3(account:) }
         let(:tool) do
-          t = tool_configuration.new_external_tool(account)
+          t = developer_key.lti_registration.new_external_tool(account)
           t.save!
           t
         end
@@ -906,7 +1098,7 @@ describe DeveloperKey do
           context "when tools are installed at the course level" do
             let(:course) { course_model(account:) }
             let(:course_tool) do
-              t = tool_configuration.new_external_tool(course)
+              t = developer_key.lti_registration.new_external_tool(course)
               t.save!
               t
             end
@@ -948,17 +1140,6 @@ describe DeveloperKey do
       end
 
       describe "set_root_account" do
-        context "when account is not root account" do
-          let(:account) { account_model(root_account: Account.create!) }
-
-          it "sets root account equal to account's root account" do
-            expect(developer_key_not_saved.root_account).to be_nil
-            developer_key_not_saved.account = account
-            developer_key_not_saved.save!
-            expect(developer_key_not_saved.root_account).to eq account.root_account
-          end
-        end
-
         context "when account is site admin" do
           subject { developer_key_not_saved.root_account }
 
@@ -994,7 +1175,7 @@ describe DeveloperKey do
     it "destroys developer key account bindings when destroyed" do
       binding_id = developer_key_account_binding.id
       developer_key_saved.destroy_permanently!
-      expect(DeveloperKeyAccountBinding.find_by(id: binding_id)).to be_nil
+      expect(DeveloperKeyAccountBinding.find_by(id: binding_id)).to be_deleted
     end
 
     it "has many context external tools" do
@@ -1168,6 +1349,26 @@ describe DeveloperKey do
   end
 
   describe "default" do
+    context "when create_if_missing: false is passed" do
+      before do
+        allow(DeveloperKey).to receive(:get_special_key) do |*args, **kwargs|
+          DeveloperKey.original_get_special_key(*args, **kwargs)
+        end
+      end
+
+      it "does not create a key" do
+        DeveloperKey.delete_all
+        expect(DeveloperKey.count).to eq 0
+        DeveloperKey.default(create_if_missing: false)
+        expect(DeveloperKey.count).to eq 0
+      end
+
+      it "finds existing keys" do
+        expect(DeveloperKey.default).to_not be_nil
+        expect(DeveloperKey.default(create_if_missing: false)).to_not be_nil
+      end
+    end
+
     context "sharding" do
       specs_require_sharding
 

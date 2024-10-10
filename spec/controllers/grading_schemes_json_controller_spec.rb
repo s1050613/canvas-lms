@@ -236,7 +236,30 @@ describe GradingSchemesJsonController, type: :request do
                                             "assessed_assignment" => false,
                                             "points_based" => false,
                                             "scaling_factor" => 1.0,
+                                            "used_as_default" => false,
                                             "workflow_state" => "active" })
+      end
+
+      it "doesn't return parent account grading schemes" do
+        data = GradingSchemesJsonController.to_grading_standard_data(test_data)
+        account_level_grading_standard = @account.grading_standards.build(title: "My Grading Scheme",
+                                                                          data:,
+                                                                          scaling_factor: 1.0,
+                                                                          points_based: false)
+        account_level_grading_standard.save
+
+        sub_account = Account.create(parent_account: @account, name: "Test subaccount")
+        sub_admin = account_admin_user(account: sub_account)
+
+        Account.site_admin.enable_feature!(:archived_grading_schemes)
+
+        user_session(sub_admin)
+
+        get "/accounts/#{sub_account.id}/grading_schemes", as: :json
+        expect(response).to have_http_status(:ok)
+
+        response_json = response.parsed_body
+        expect(response_json.first).to be_nil
       end
     end
 
@@ -264,7 +287,95 @@ describe GradingSchemesJsonController, type: :request do
                                       "assessed_assignment" => false,
                                       "points_based" => false,
                                       "scaling_factor" => 1.0,
+                                      "used_as_default" => false,
                                       "workflow_state" => "active" })
+      end
+    end
+
+    describe "get account default grading scheme" do
+      it "returns the account default grading scheme json if one exists" do
+        Account.site_admin.enable_feature! :default_account_grading_scheme
+        account_scheme_data = [{ "name" => "A", "value" => 0.90 },
+                               { "name" => "B", "value" => 0.80 },
+                               { "name" => "C", "value" => 0.70 },
+                               { "name" => "D", "value" => 0.60 },
+                               { "name" => "F", "value" => 0.0 }]
+        account_level_grading_standard = GradingStandard.new(context: @account, workflow_state: "active", title: "My Account Level Grading Standard", data: GradingSchemesJsonController.to_grading_standard_data(account_scheme_data))
+        @account.grading_standard = account_level_grading_standard
+        account_level_grading_standard.save
+        @account.save
+
+        user_session(@admin)
+        get "/accounts/" + @account.id.to_s + "/grading_schemes/account_default", as: :json
+
+        expect(response).to have_http_status(:ok)
+        response_json = response.parsed_body
+        expect(response_json["id"]).to eq account_level_grading_standard.id.to_s
+        expect(response_json["title"]).to eq account_level_grading_standard.title.to_s
+      end
+
+      it "does not return the account default grading scheme json if one does not exist" do
+        Account.site_admin.enable_feature! :default_account_grading_scheme
+
+        user_session(@admin)
+        get "/accounts/" + @account.id.to_s + "/grading_schemes/account_default", as: :json
+        expect(response).to have_http_status(:ok)
+        response_json = response.parsed_body
+        expect(response_json).to be_nil
+      end
+    end
+
+    describe "put account default grading scheme" do
+      it "updates the account default grading scheme" do
+        Account.site_admin.enable_feature! :default_account_grading_scheme
+        account_scheme_data = [{ "name" => "A", "value" => 0.90 },
+                               { "name" => "B", "value" => 0.80 },
+                               { "name" => "C", "value" => 0.70 },
+                               { "name" => "D", "value" => 0.60 },
+                               { "name" => "F", "value" => 0.0 }]
+        account_level_grading_standard = GradingStandard.new(context: @account, workflow_state: "active", title: "My Account Level Grading Standard", data: GradingSchemesJsonController.to_grading_standard_data(account_scheme_data))
+        account_level_grading_standard.save
+        params = {
+          id: account_level_grading_standard.id.to_s,
+        }
+
+        user_session(@admin)
+        put "/accounts/" + @account.id.to_s + "/grading_schemes/account_default",
+            params:,
+            as: :json
+
+        expect(response).to have_http_status(:ok)
+        response_json = response.parsed_body
+        expect(response_json["id"]).to eq account_level_grading_standard.id.to_s
+        @account.reload
+        expect(@account.grading_standard.id).to eq account_level_grading_standard.id
+      end
+
+      it "removes the account default grading scheme if nil is sent as the ID" do
+        Account.site_admin.enable_feature! :default_account_grading_scheme
+        account_scheme_data = [{ "name" => "A", "value" => 0.90 },
+                               { "name" => "B", "value" => 0.80 },
+                               { "name" => "C", "value" => 0.70 },
+                               { "name" => "D", "value" => 0.60 },
+                               { "name" => "F", "value" => 0.0 }]
+        account_level_grading_standard = GradingStandard.new(context: @account, workflow_state: "active", title: "My Account Level Grading Standard", data: GradingSchemesJsonController.to_grading_standard_data(account_scheme_data))
+        @account.grading_standard = account_level_grading_standard
+        account_level_grading_standard.save
+        @account.save
+        params = {
+          id: nil,
+        }
+
+        user_session(@admin)
+        put "/accounts/" + @account.id.to_s + "/grading_schemes/account_default",
+            params:,
+            as: :json
+
+        expect(response).to have_http_status(:ok)
+        response_json = response.parsed_body
+        expect(response_json).to be_nil
+        @account.reload
+        expect(@account.grading_standard).to be_nil
       end
     end
 
@@ -431,6 +542,7 @@ describe GradingSchemesJsonController, type: :request do
                                       "assessed_assignment" => false,
                                       "points_based" => false,
                                       "scaling_factor" => 1.0,
+                                      "used_as_default" => false,
                                       "workflow_state" => "active" })
       end
 
@@ -470,6 +582,7 @@ describe GradingSchemesJsonController, type: :request do
                                       "assessed_assignment" => false,
                                       "points_based" => true,
                                       "scaling_factor" => 5.0,
+                                      "used_as_default" => false,
                                       "workflow_state" => "active" })
       end
     end
@@ -482,12 +595,10 @@ describe GradingSchemesJsonController, type: :request do
         course_with_teacher(active_all: true, account: @root_account)
         @admin = account_admin_user(account: @root_account)
         @student = user_factory(active_user: true)
-        @sub_account = @root_account.sub_accounts.create!
         course_with_teacher(account: @root_account)
         @enrollment.update(workflow_state: "active")
         @grading_standard = GradingStandard.create(context: @root_account, workflow_state: "active", data:)
         @root_account.update(grading_standard_id: @grading_standard.id)
-        @sub_account.update(grading_standard_id: @grading_standard.id)
         @course.update(grading_standard_id: @grading_standard.id)
         3.times do
           assignment = @course.assignments.create!(title: "hi", grading_standard_id: @grading_standard.id)
@@ -502,7 +613,12 @@ describe GradingSchemesJsonController, type: :request do
 
         expect(locations.size).to eq(1)
         expect(locations.first["id"]).to eq(@course.id)
-        expect(locations.first["assignments"].size).to eq(3)
+        expect(locations.first["assignments"].size).to eq(0)
+
+        get "/accounts/#{@account.id}/grading_schemes/#{@grading_standard.id}/used_locations/#{@course.id}", as: :json
+        assignment_locations = response.parsed_body
+
+        expect(assignment_locations.size).to eq(3)
       end
 
       it "does not return courses without graded assignments" do
@@ -531,6 +647,36 @@ describe GradingSchemesJsonController, type: :request do
         course_ids = locations.pluck("id")
         expect(course_ids).to include(another_course.id)
       end
+
+      it "ignore course if is deleted" do
+        @course.destroy!
+        user_session(@admin)
+        get "/accounts/#{@account.id}/grading_schemes/#{@grading_standard.id}/used_locations", as: :json
+        locations = response.parsed_body
+
+        expect(locations.size).to eq(0)
+      end
+    end
+  end
+
+  describe "#account_used_locations" do
+    let_once(:data) { [["A", 94], ["F", 0]] }
+
+    before(:once) do
+      @root_account = Account.default
+      @grading_standard = GradingStandard.create(context: @root_account, workflow_state: "active", data:)
+      @root_account.update(grading_standard_id: @grading_standard.id)
+      @sub_account = @root_account.sub_accounts.create!
+      @admin = account_admin_user(account: @root_account)
+    end
+
+    it "returns root account where the grading standard is related" do
+      user_session(@admin)
+      get "/accounts/#{@root_account.id}/grading_schemes/#{@grading_standard.id}/account_used_locations", as: :json
+      locations = response.parsed_body
+
+      expect(locations.size).to eq(1)
+      expect(locations[0]["id"]).to eq(@root_account.id)
     end
   end
 
@@ -612,6 +758,7 @@ describe GradingSchemesJsonController, type: :request do
                                             "assessed_assignment" => false,
                                             "points_based" => false,
                                             "scaling_factor" => 1.0,
+                                            "used_as_default" => false,
                                             "workflow_state" => "active" })
 
         expect(response_json[1]).to eq({ "id" => @course_level_grading_standard.id.to_s,
@@ -624,6 +771,7 @@ describe GradingSchemesJsonController, type: :request do
                                          "assessed_assignment" => false,
                                          "points_based" => false,
                                          "scaling_factor" => 1.0,
+                                         "used_as_default" => false,
                                          "workflow_state" => "active" })
       end
     end
@@ -778,6 +926,7 @@ describe GradingSchemesJsonController, type: :request do
                                       "assessed_assignment" => false,
                                       "points_based" => false,
                                       "scaling_factor" => 1.0,
+                                      "used_as_default" => false,
                                       "workflow_state" => "active" })
       end
     end
@@ -807,6 +956,7 @@ describe GradingSchemesJsonController, type: :request do
                                       "assessed_assignment" => false,
                                       "points_based" => false,
                                       "scaling_factor" => 1.0,
+                                      "used_as_default" => false,
                                       "workflow_state" => "active" })
       end
     end

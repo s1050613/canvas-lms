@@ -4,6 +4,12 @@
   <div class="sticky-toolbar-with-right-side" data-sticky>
     <div class="header-bar">
       <div class="header-bar-right">
+        {{#if block_editor}}
+          <label class="checkbox" for="toggle_block_editor" style="margin-inline-end: 4px;">
+            <input type="checkbox" value="1" id="toggle_block_editor" aria-label="toggle block editor" checked>
+            {{#t}}Create with block editor{{/t}}
+          </label>
+        {{/if}}
         {{#if CAN.DELETE}}
           <button class="btn delete_pages" tabindex="0" aria-label="{{#t}}Delete selected pages{{/t}}" disabled>
             <i class="icon-trash" role="presentation"></i>
@@ -83,6 +89,11 @@
                   <span class="screenreader-only">{{#t}}Select page{{/t}}</span>
                 </th>
               {{/if}}
+              {{#if block_editor}}
+                <th scope="col" width="24px" role="columnheader">
+                  <span class="screenreader-only">{{#t}}page type{{/t}}</span>
+                </th>
+              {{/if}}
               <th scope="col" width="{{#if CAN.MANAGE}}{{#if CAN.PUBLISH}}42%{{else}}46%{{/if}}{{else}}60%{{/if}}" role="columnheader">
                 <span class="mobile-screenreader-only">
                   <a href="#" data-sort-field="title" tabindex="0" role="button" class="sort-field">{{#t 'headers.page_title'}}Page title{{/t}} <i></i></a>
@@ -124,8 +135,7 @@
         </table>
       {{/if}}
     {{/if}}
-      <div class="paginatedLoadingIndicator loading {{#unless fetched}}loading{{else}}loading-more{{/unless}}" style="background-image: none;">
-        <img src="/images/ajax-reload-animated.gif">
+      <div class="paginatedLoadingIndicator {{#unless fetched}}loading{{else}}loading-more{{/unless}}" style="background-image: none;">
         {{#unless fetched}}{{#t 'loading'}}Loading ...{{/t}}{{else}}{{#t 'loading_more'}}Loading more ...{{/t}}{{/unless}}
       </div>
     {{#if fetched}}

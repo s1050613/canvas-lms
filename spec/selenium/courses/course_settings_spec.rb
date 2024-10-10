@@ -488,6 +488,54 @@ describe "course settings" do
       end
     end
 
+    context "participation" do
+      it "allows setting both dates as empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "allows end date to be empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        ff("input[id*='Selectable_']").first.send_keys(Time.zone.now.to_s)
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "allows start date to be empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        ff("input[id*='Selectable_']").last.send_keys(Time.zone.now.to_s)
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "gives a validation when end is greater than start" do
+        current_date = Time.zone.now
+        yesterday = current_date - 1.day
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        ff("input[id*='Selectable_']").first.send_keys(current_date.to_s)
+        ff("input[id*='Selectable_']").last.send_keys(yesterday.to_s)
+
+        fj("button:contains('Update Course Details')").click
+        # Adding expectation for the error shown after the end field
+        expect(fj("span:contains('The end date can not occur before the start date.')")).to be_present
+        # Adding expectation for the error shown in the Flash notification
+        expect(fj("span:contains('The course end date can not occur before the course start date.')")).to be_present
+      end
+    end
+
     it "adds a section" do
       section_name = "new section"
       get "/courses/#{@course.id}/settings#tab-sections"
@@ -577,8 +625,7 @@ describe "course settings" do
     it "shows publish/unpublish buttons in sidebar and no status badge if user can change publish state" do
       course_with_teacher_logged_in(active_all: true)
       get "/courses/#{@course.id}/settings"
-      expect(f("#course_status_form")).to be_present
-      expect(f("#course_status_form #continue_to")).to have_attribute("value", "#{course_url(@course)}/settings")
+      expect(f("#course_publish_button")).to be_present
       expect(f("#content")).not_to contain_css("#course-status")
     end
 
@@ -586,7 +633,7 @@ describe "course settings" do
       course_with_ta_logged_in(active_all: true)
       get "/courses/#{@course.id}/settings"
       expect(f("#course-status")).to be_present
-      expect(f("#content")).not_to contain_css("#course_status_form")
+      expect(f("#content")).not_to contain_css("#course_publish_button")
     end
   end
 

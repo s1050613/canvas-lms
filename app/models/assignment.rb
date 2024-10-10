@@ -23,6 +23,9 @@ class Assignment < AbstractAssignment
 
   before_save :before_soft_delete, if: -> { will_save_change_to_workflow_state?(to: "deleted") }
 
+  SUB_ASSIGNMENT_SYNC_ATTRIBUTES = %w[workflow_state unlock_at lock_at].freeze
+  after_commit :update_sub_assignments, if: :sync_attributes_changed?
+
   set_broadcast_policy do |p|
     p.dispatch :assignment_due_date_changed
     p.to do |assignment|
@@ -95,6 +98,20 @@ class Assignment < AbstractAssignment
     has_sub_assignments? && root_account&.feature_enabled?(:discussion_checkpoints)
   end
 
+  def update_from_sub_assignment(changed_attributes)
+    return unless changed_attributes.keys.intersect?(SubAssignment::SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
+
+    self.saved_by = :sub_assignment
+    updates = changed_attributes.slice(*SubAssignment::SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
+
+    updates.each do |attr, (_old_value, new_value)|
+      send(:"#{attr}=", new_value)
+    end
+
+    save!
+    update_sub_assignments
+  end
+
   private
 
   def before_soft_delete
@@ -103,5 +120,31 @@ class Assignment < AbstractAssignment
 
   def governs_submittable?
     true
+  end
+
+  def update_sub_assignments
+    return unless has_sub_assignments?
+
+    changed_attributes = previous_changes.slice(*SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
+
+    sub_assignments.active.each do |checkpoint|
+      updates = {}
+      changed_attributes.each do |attr, (_, new_value)|
+        updates[attr] = new_value if checkpoint.respond_to?(:"#{attr}=")
+      end
+      next unless updates.any?
+
+      checkpoint.saved_by = :parent_assignment
+      checkpoint.update!(updates)
+      checkpoint.saved_by = nil
+    end
+  end
+
+  def sync_attributes_changed?
+    previous_changes.keys.intersect?(SUB_ASSIGNMENT_SYNC_ATTRIBUTES) && saved_by != :sub_assignment
+  end
+
+  def sync_attributes_changes
+    previous_changes.slice(*SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
   end
 end

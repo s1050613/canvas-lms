@@ -16,16 +16,22 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import React, {useCallback} from 'react'
-import {useEditor, useNode} from '@craftjs/core'
+import {useEditor, useNode, type Node} from '@craftjs/core'
 import {ButtonBlockToolbar} from './ButtonBlockToolbar'
 
-import {getIcon} from '../../../../assets/icons'
+import {getIcon} from '../../../../assets/user-icons'
 import {Button, CondensedButton} from '@instructure/ui-buttons'
 import {type ViewProps} from '@instructure/ui-view'
 import {darken, lighten} from '@instructure/ui-color-utils'
-import {getContrastingColor, white} from '../../../../utils'
-import {isInstuiButtonColor} from './common'
-import type {InstuiButtonColor, ButtonSize, ButtonVariant, ButtonBlockProps} from './common'
+import {getContrastingColor, white} from '../../../../utils/colorUtils'
+import {isInstuiButtonColor} from './types'
+import type {
+  InstuiButtonColor,
+  ButtonSize,
+  ButtonVariant,
+  ButtonBlockProps,
+  InstuiCondensedButtonColor,
+} from './types'
 
 const ButtonBlock = ({
   text,
@@ -44,8 +50,10 @@ const ButtonBlock = ({
   const {
     connectors: {connect, drag},
     customThemeOverride,
-  } = useNode(state => ({
-    customThemeOverride: state.data.custom.themeOverride || {},
+    node,
+  } = useNode((n: Node) => ({
+    customThemeOverride: n.data.custom.themeOverride || {},
+    node: n,
   }))
 
   const handleClick = useCallback(
@@ -86,32 +94,50 @@ const ButtonBlock = ({
 
   if (variant === 'condensed') {
     return (
-      <CondensedButton
-        elementRef={el => el && connect(drag(el as HTMLElement))}
-        size={size}
-        color={color}
-        href={href?.trim() || '#'}
-        renderIcon={iconName ? renderIcon : undefined}
-        themeOverride={themeOverride}
-        onClick={handleClick}
+      <div
+        role="treeitem"
+        aria-label={node.data.displayName}
+        aria-selected={node.events.selected}
+        className="block button-block"
+        ref={el => el && connect(drag(el as HTMLElement))}
+        tabIndex={-1}
       >
-        <span style={{whiteSpace: 'nowrap'}}>{text.trim()}</span>
-      </CondensedButton>
+        <CondensedButton
+          data-testid="button-block"
+          size={size}
+          color={color as InstuiCondensedButtonColor}
+          href={href?.trim() || '#'}
+          renderIcon={iconName ? renderIcon : undefined}
+          themeOverride={themeOverride}
+          onClick={handleClick}
+        >
+          <span style={{whiteSpace: 'nowrap'}}>{text.trim()}</span>
+        </CondensedButton>
+      </div>
     )
   } else {
     return (
-      <Button
-        themeOverride={themeOverride}
-        elementRef={el => el && connect(drag(el as HTMLElement))}
-        size={size}
-        color={colorProp}
-        withBackground={withBackground}
-        href={href?.trim() || '#'}
-        renderIcon={iconName ? renderIcon : undefined}
-        onClick={handleClick}
+      <div
+        role="treeitem"
+        aria-label={node.data.displayName}
+        aria-selected={node.events.selected}
+        className="block button-block"
+        ref={el => el && connect(drag(el as HTMLElement))}
+        tabIndex={-1}
       >
-        <span style={{whiteSpace: 'nowrap'}}>{text.trim()}</span>
-      </Button>
+        <Button
+          data-testid="button-block"
+          themeOverride={themeOverride}
+          size={size}
+          color={colorProp}
+          withBackground={withBackground}
+          href={href?.trim() || '#'}
+          renderIcon={iconName ? renderIcon : undefined}
+          onClick={handleClick}
+        >
+          <span style={{whiteSpace: 'nowrap'}}>{text.trim()}</span>
+        </Button>
+      </div>
     )
   }
 }
@@ -124,9 +150,13 @@ ButtonBlock.craft = {
     size: 'medium',
     variant: 'filled',
     color: 'primary',
+    iconName: '',
   },
   related: {
     toolbar: ButtonBlockToolbar,
+  },
+  custom: {
+    isBlock: true,
   },
 }
 

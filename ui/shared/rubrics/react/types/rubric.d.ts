@@ -22,14 +22,20 @@ export type Rubric = {
   criteriaCount: number
   hidePoints?: boolean
   freeFormCriterionComments?: boolean
-  locations: string[]
   buttonDisplay?: string
   ratingOrder?: string
   pointsPossible: number
   title: string
   workflowState?: string
+  unassessed?: boolean
   hasRubricAssociations?: boolean
-  freeFormCriterionComments?: boolean
+}
+
+export type RubricAssociation = {
+  hidePoints: boolean
+  hideScoreTotal: boolean
+  useForGrading: boolean
+  id: string
 }
 
 export type RubricCriterion = {
@@ -72,6 +78,7 @@ export type RubricAssessmentData = {
   comments: string
   commentsEnabled: boolean
   description: string
+  ignoreForScoring?: boolean
   rubricSavedComments?: string[]
   saveCommentsForLater?: boolean
 }
@@ -79,7 +86,7 @@ export type RubricAssessmentData = {
 export type UpdateAssessmentData = {
   criterionId: string
   points?: number
-  description?: string
+  ratingId?: string
   comments?: string
   saveCommentsForLater?: boolean
 }

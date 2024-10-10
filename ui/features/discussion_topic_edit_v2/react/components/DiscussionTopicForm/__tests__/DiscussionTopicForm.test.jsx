@@ -78,6 +78,7 @@ describe('DiscussionTopicForm', () => {
       DISCUSSION_CHECKPOINTS_ENABLED: true,
       ASSIGNMENT_EDIT_PLACEMENT_NOT_ON_ANNOUNCEMENTS: false,
       context_is_not_group: true,
+      RESTRICT_QUANTITATIVE_DATA: false,
     }
   })
 
@@ -100,6 +101,7 @@ describe('DiscussionTopicForm', () => {
     expect(document.queryByText('Attach')).toBeTruthy()
     expect(document.queryByTestId('section-select')).toBeTruthy()
     expect(document.queryAllByText('Anonymous Discussion')).toBeTruthy()
+    expect(document.queryByLabelText('Disallow threaded replies')).toBeInTheDocument()
     expect(document.queryByTestId('require-initial-post-checkbox')).toBeTruthy()
     expect(document.queryByLabelText('Enable podcast feed')).toBeInTheDocument()
     expect(document.queryByTestId('graded-checkbox')).toBeTruthy()
@@ -110,33 +112,58 @@ describe('DiscussionTopicForm', () => {
     expect(document.queryAllByText('Until')).toBeTruthy()
 
     // Hides announcement options
-    expect(document.queryByLabelText('Delay Posting')).not.toBeInTheDocument()
     expect(document.queryByLabelText('Allow Participants to Comment')).not.toBeInTheDocument()
+  })
+
+  it('renders reset buttons for availability dates when creating/editing a discussion topic', () => {
+    window.ENV.DISCUSSION_TOPIC.PERMISSIONS.CAN_MODERATE = true
+    window.ENV.DISCUSSION_TOPIC.PERMISSIONS.CAN_MANAGE_CONTENT = true
+
+    const document = setup()
+
+    expect(document.queryAllByTestId('reset-available-from-button').length).toBe(1)
+    expect(document.queryAllByTestId('reset-available-until-button').length).toBe(1)
   })
 
   it('renders expected default teacher announcement options', () => {
     window.ENV.DISCUSSION_TOPIC.PERMISSIONS.CAN_MODERATE = true
     window.ENV.DISCUSSION_TOPIC.PERMISSIONS.CAN_MANAGE_CONTENT = true
     window.ENV.DISCUSSION_TOPIC.ATTRIBUTES.is_announcement = true
+    window.ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED = true
 
     const document = setup()
     // Default teacher options in order top to bottom
     expect(document.getByText('Topic Title')).toBeInTheDocument()
     expect(document.queryByText('Attach')).toBeTruthy()
     expect(document.queryByTestId('section-select')).toBeTruthy()
-    expect(document.queryByLabelText('Delay Posting')).toBeInTheDocument()
     expect(document.queryByLabelText('Allow Participants to Comment')).toBeInTheDocument()
-    expect(document.queryByTestId('require-initial-post-checkbox')).toBeTruthy()
+    expect(document.queryByLabelText('Disallow threaded replies')).toBeInTheDocument()
     expect(document.queryByLabelText('Enable podcast feed')).toBeInTheDocument()
     expect(document.queryByLabelText('Allow liking')).toBeInTheDocument()
+    expect(document.queryByTestId('non-graded-date-options')).toBeTruthy()
+    expect(document.queryAllByText('Available from')).toBeTruthy()
+    expect(document.queryAllByText('Until')).toBeTruthy()
 
     // Hides discussion only options
+    expect(document.queryByTestId('require-initial-post-checkbox')).not.toBeInTheDocument()
     expect(document.queryByLabelText('Add to student to-do')).not.toBeInTheDocument()
     expect(document.queryByText('Anonymous Discussion')).not.toBeTruthy()
     expect(document.queryByTestId('graded-checkbox')).not.toBeTruthy()
     expect(document.queryByTestId('group-discussion-checkbox')).not.toBeTruthy()
-    expect(document.queryByText('Available from')).not.toBeTruthy()
-    expect(document.queryByText('Until')).not.toBeTruthy()
+
+    // hides mastery paths
+    expect(document.queryByText('Mastery Paths')).toBeFalsy()
+  })
+
+  it('renders reset buttons for availability dates when creating/editing an announcement', () => {
+    window.ENV.DISCUSSION_TOPIC.PERMISSIONS.CAN_MODERATE = true
+    window.ENV.DISCUSSION_TOPIC.PERMISSIONS.CAN_MANAGE_CONTENT = true
+    window.ENV.DISCUSSION_TOPIC.ATTRIBUTES.is_announcement = true
+
+    const document = setup()
+
+    expect(document.queryAllByTestId('reset-available-from-button').length).toBe(1)
+    expect(document.queryAllByTestId('reset-available-until-button').length).toBe(1)
   })
 
   describe('assignment edit placement', () => {
@@ -225,7 +252,7 @@ describe('DiscussionTopicForm', () => {
       const document = setup()
       expect(
         document.getByText(
-          'Notifications will not be sent retroactively for announcements created before publishing your course or before the course start date. You may consider using the Delay Posting option and set to publish on a future date.'
+          'Notifications will not be sent retroactively for announcements created before publishing your course or before the course start date. You may consider using the Available from option and set to publish on a future date.'
         )
       ).toBeInTheDocument()
     })
@@ -240,7 +267,7 @@ describe('DiscussionTopicForm', () => {
       const document = setup()
       expect(
         document.getByText(
-          'Notifications will not be sent retroactively for announcements created before publishing your course or before the course start date. You may consider using the Delay Posting option and set to publish on a future date.'
+          'Notifications will not be sent retroactively for announcements created before publishing your course or before the course start date. You may consider using the Available from option and set to publish on a future date.'
         )
       ).toBeInTheDocument()
     })
@@ -418,7 +445,7 @@ describe('DiscussionTopicForm', () => {
       const document = setup({
         groupCategories: [{_id: '1', name: 'Mutant Power Training Group 1'}],
         isEditing: true,
-        currentDiscussionTopic: DiscussionTopic.mock({groupSet: GroupSet.mock(), canGroup: false}),
+        currentDiscussionTopic: DiscussionTopic.mock({groupSet: GroupSet.mock(), canGroup: false, entryCounts: {repliesCount: 1}}),
       })
 
       expect(document.queryByTestId('group-category-not-editable')).toBeTruthy()
@@ -458,6 +485,61 @@ describe('DiscussionTopicForm', () => {
       getByLabelText('Graded').click()
 
       expect(queryByTestId('checkpoints-checkbox')).not.toBeInTheDocument()
+    })
+
+    it('displays the checkpoints checkbox when RESTRICT_QUANTITATIVE_DATA is false', () => {
+      const {queryByTestId, getByLabelText} = setup()
+
+      getByLabelText('Graded').click()
+
+      expect(queryByTestId('checkpoints-checkbox')).toBeInTheDocument()
+    })
+
+    it('does not display the checkpoints checkbox when RESTRICT_QUANTITATIVE_DATA is true', () => {
+      window.ENV.RESTRICT_QUANTITATIVE_DATA = true
+
+      const {queryByTestId, getByLabelText} = setup()
+
+      getByLabelText('Graded').click()
+
+      expect(queryByTestId('checkpoints-checkbox')).not.toBeInTheDocument()
+    })
+
+    it('does not display "Allow Participants to Comment" when the setting is turned off', () => {
+      window.ENV.DISCUSSION_TOPIC.ATTRIBUTES.is_announcement = true
+      window.ENV.ANNOUNCEMENTS_COMMENTS_DISABLED = true
+
+      const {queryByText} = setup()
+
+      expect(queryByText('Allow Participants to Comment')).not.toBeInTheDocument()
+    })
+
+    it('displays "Allow Participants to Comment" when the setting is turned on', () => {
+      window.ENV.DISCUSSION_TOPIC.ATTRIBUTES.is_announcement = true
+      window.ENV.ANNOUNCEMENTS_COMMENTS_DISABLED = false
+
+      const {queryByText} = setup()
+
+      expect(queryByText('Allow Participants to Comment')).toBeInTheDocument()
+    })
+  })
+
+  describe('Disallow threaded replies', () => {
+    it('disallow threaded replies checkbox is checked when discussion type is side comment and does not has threaded reply', () => {
+      window.ENV.DISCUSSION_TOPIC.ATTRIBUTES.has_threaded_replies = false
+      const {getByTestId} = setup({currentDiscussionTopic: {discussionType: "side_comment"}})
+
+      const checkbox = getByTestId('disallow_threaded_replies')
+      expect(checkbox.checked).toBe(true)
+    })
+
+    it('disallow threaded replies checkbox is disabled when discussion type is side comment and has threaded replies', () => {
+      window.ENV.DISCUSSION_TOPIC.ATTRIBUTES.has_threaded_replies = true
+      const {getByTestId} = setup({currentDiscussionTopic: {discussionType: "side_comment"}})
+
+      const checkbox = getByTestId('disallow_threaded_replies')
+      expect(checkbox.disabled).toBe(true)
+      expect(checkbox.checked).toBe(false)
     })
   })
 
@@ -546,6 +628,21 @@ describe('DiscussionTopicForm', () => {
         checkbox.click()
         expect(checkbox.checked).toBe(false)
       })
+
+      it('unchecks the checkpoints checkbox when graded is unchecked', () => {
+        const {getByTestId, getByLabelText} = setup()
+
+        getByLabelText('Graded').click()
+        getByTestId('checkpoints-checkbox').click()
+        expect(getByTestId('checkpoints-checkbox').checked).toBe(true)
+
+        // 1st graded click will uncheck checkpoints. but it also hides from document.
+        // 2nd graded click will render checkpoints, notice its unchecked.
+        getByLabelText('Graded').click()
+        getByLabelText('Graded').click()
+        expect(getByTestId('checkpoints-checkbox').checked).toBe(false)
+      })
+
       it('renders the checkpoints checkbox as selected when there are existing checkpoints', () => {
         const {getByTestId} = setup({
           currentDiscussionTopic: DiscussionTopic.mock({
@@ -570,34 +667,6 @@ describe('DiscussionTopicForm', () => {
           checkbox.click()
         }
 
-        it('increments and decrements the checkpoints settings points possible reply to topic fields', () => {
-          setupCheckpoints(setup())
-
-          const numberInputReplyToTopic = getByTestId('points-possible-input-reply-to-topic')
-          expect(numberInputReplyToTopic.value).toBe('0')
-
-          fireEvent.click(numberInputReplyToTopic)
-
-          fireEvent.keyDown(numberInputReplyToTopic, {keyCode: 38})
-          expect(numberInputReplyToTopic.value).toBe('1')
-
-          fireEvent.keyDown(numberInputReplyToTopic, {keyCode: 40})
-          expect(numberInputReplyToTopic.value).toBe('0')
-        })
-        it('increments and decrements the checkpoints settings points possible reply to entry fields', () => {
-          setupCheckpoints(setup())
-
-          const numberInputReplyToEntry = getByTestId('points-possible-input-reply-to-entry')
-          expect(numberInputReplyToEntry.value).toBe('0')
-
-          fireEvent.click(numberInputReplyToEntry)
-
-          fireEvent.keyDown(numberInputReplyToEntry, {keyCode: 38})
-          expect(numberInputReplyToEntry.value).toBe('1')
-
-          fireEvent.keyDown(numberInputReplyToEntry, {keyCode: 40})
-          expect(numberInputReplyToEntry.value).toBe('0')
-        })
         describe('Additional Replies Required', () => {
           it('increments and decrements the checkpoints settings additional replies required entry field', () => {
             setupCheckpoints(setup())
@@ -734,7 +803,7 @@ describe('DiscussionTopicForm', () => {
         expect(document.queryByLabelText('Allow liking')).toBeInTheDocument()
         expect(document.queryByLabelText('Add to student to-do')).toBeInTheDocument()
         expect(document.queryByTestId('group-discussion-checkbox')).toBeTruthy()
-        expect(document.queryAllByText('Manage Assign To')).toBeTruthy()
+        expect(document.queryAllByText('Manage Due Dates and Assign To')).toBeTruthy()
 
         // Hides announcement options
         expect(document.queryByLabelText('Delay Posting')).not.toBeInTheDocument()

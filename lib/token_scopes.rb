@@ -50,7 +50,7 @@ class TokenScopes
   LTI_LIST_ACCOUNT_EXTERNAL_TOOLS_SCOPE = "https://canvas.instructure.com/lti/account_external_tools/scope/list"
   LTI_SHOW_ACCOUNT_EXTERNAL_TOOLS_SCOPE = "https://canvas.instructure.com/lti/account_external_tools/scope/show"
   LTI_UPDATE_ACCOUNT_EXTERNAL_TOOLS_SCOPE = "https://canvas.instructure.com/lti/account_external_tools/scope/update"
-  LTI_PAGE_CONTENT_SHOW_SCOPE = "http://canvas.instructure.com/lti/page_content/show"
+  LTI_PAGE_CONTENT_SHOW_SCOPE = "https://canvas.instructure.com/lti/page_content/show"
   LTI_REPLACE_EDITOR_CONTENT_SCOPE = "https://canvas.instructure.com/lti/replace_editor_contents"
   LTI_SCOPES = {
     LTI_AGS_LINE_ITEM_SCOPE => I18n.t("Can create and view assignment data in the gradebook associated with the tool."),
@@ -59,11 +59,12 @@ class TokenScopes
     LTI_AGS_SCORE_SCOPE => I18n.t("Can create and update submission results for assignments associated with the tool."),
     LTI_NRPS_V2_SCOPE => I18n.t("Can retrieve user data associated with the context the tool is installed in."),
     LTI_UPDATE_PUBLIC_JWK_SCOPE => I18n.t("Can update public jwk for LTI services."),
-    LTI_ACCOUNT_LOOKUP_SCOPE => I18n.t("Can lookup Account information"),
-    LTI_AGS_SHOW_PROGRESS_SCOPE => I18n.t("Can view Progress records associated with the context the tool is installed in"),
+    LTI_ACCOUNT_LOOKUP_SCOPE => I18n.t("Can lookup Account information."),
+    LTI_AGS_SHOW_PROGRESS_SCOPE => I18n.t("Can view Progress records associated with the context the tool is installed in."),
+    LTI_PAGE_CONTENT_SHOW_SCOPE => I18n.t("Can view the content of a page the tool is launched from."),
   }.freeze
   # These are scopes that are used to authorize postMessage calls
-  # Any scopes here also need to be added to LTI_SCOPES above
+  # Any scopes here also need to be added to LTI_SCOPES or LTI_HIDDEN_SCOPES
   LTI_POSTMESSAGE_SCOPES = [
     LTI_PAGE_CONTENT_SHOW_SCOPE
   ].freeze
@@ -86,10 +87,11 @@ class TokenScopes
     LTI_LIST_DATA_SERVICE_SUBSCRIPTION_SCOPE => I18n.t("Can list subscriptions to data service data."),
     LTI_DESTROY_DATA_SERVICE_SUBSCRIPTION_SCOPE => I18n.t("Can destroy subscription to data service data."),
     LTI_LIST_EVENT_TYPES_DATA_SERVICE_SUBSCRIPTION_SCOPE => I18n.t("Can list categorized event types."),
-    LTI_SHOW_FEATURE_FLAG_SCOPE => I18n.t("Can view feature flags"),
-    LTI_PAGE_CONTENT_SHOW_SCOPE => I18n.t("Can request page content using postMessage API."),
+    LTI_SHOW_FEATURE_FLAG_SCOPE => I18n.t("Can view feature flags."),
     LTI_REPLACE_EDITOR_CONTENT_SCOPE => I18n.t("Can replace the entire contents of the RCE.")
   }.freeze
+
+  ALL_LTI_SCOPES = [*LTI_SCOPES.keys, *LTI_HIDDEN_SCOPES.keys].uniq.freeze
 
   def self.named_scopes
     return @_named_scopes if @_named_scopes
@@ -116,7 +118,7 @@ class TokenScopes
   def self.api_routes
     return @_api_routes if @_api_routes
 
-    routes = Rails.application.routes.routes.select { |route| %r{^/api/(v1|sis)} =~ route.path.spec.to_s }.map do |route|
+    routes = Rails.application.routes.routes.select { |route| %r{^/api/(v1|sis|quiz/v1)} =~ route.path.spec.to_s }.map do |route|
       {
         controller: route.defaults[:controller]&.to_sym,
         action: route.defaults[:action]&.to_sym,

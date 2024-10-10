@@ -105,6 +105,7 @@ module Api::V1::DiscussionTopics
     )
 
     DiscussionTopic.preload_subentry_counts(topics)
+    DatesOverridable.preload_override_data_for_objects([*topics, *topics.filter_map(&:assignment)])
     opts[:use_preload] = true
     topics.each_with_object([]) do |topic, result|
       if topic.visible_for?(user)
@@ -151,6 +152,7 @@ module Api::V1::DiscussionTopics
     end
     if topic.checkpoints?
       json[:reply_to_entry_required_count] = topic.reply_to_entry_required_count
+      json[:is_checkpointed] = topic.checkpoints?
     end
     if opts[:include_assignment] && topic.assignment
       excludes = opts[:exclude_assignment_description] ? ["description"] : []
@@ -161,7 +163,8 @@ module Api::V1::DiscussionTopics
                                             override_dates: opts[:override_dates],
                                             include_all_dates: opts[:include_all_dates],
                                             exclude_response_fields: excludes,
-                                            include_overrides: opts[:include_overrides] }.merge(opts[:assignment_opts]))
+                                            include_overrides: opts[:include_overrides],
+                                            include_checkpoints: true }.merge(opts[:assignment_opts]))
     end
 
     # ignore :include_sections_user_count for non-course contexts like groups

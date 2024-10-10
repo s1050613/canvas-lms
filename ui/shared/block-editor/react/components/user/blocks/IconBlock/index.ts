@@ -17,10 +17,10 @@
  */
 
 import {IconBlock} from './IconBlock'
-import {IconBlockSettings} from './IconBlockToolbar'
+import {type IconBlockProps} from './types'
 import {IconPicker} from './IconPicker'
 import {IconLikeLine} from '@instructure/ui-icons/es/svg'
 
 const IconBlockIcon = IconLikeLine?.src
 
-export {IconBlock, IconBlockSettings, IconPicker, IconBlockIcon}
+export {IconBlock, IconPicker, IconBlockIcon, type IconBlockProps}

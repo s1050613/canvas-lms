@@ -33,7 +33,7 @@ module Schemas::Lti
         }.freeze,
         "message_type" => {
           "type" => "string",
-          "enum" => %w[LtiDeepLinkingRequest LtiResourceLinkRequest].freeze
+          "enum" => Lti::ResourcePlacement::LTI_ADVANTAGE_MESSAGE_TYPES,
         }.freeze,
         "canvas_icon_class" => {
           "type" => "string"
@@ -138,6 +138,9 @@ module Schemas::Lti
                               "type" => "string",
                               "maxLength" => 255,
                               "errorMessage" => "description must be a string with a maximum length of 255 characters"
+                            }.freeze,
+                            "require_resource_selection" => {
+                              "type" => "boolean"
                             }.freeze,
                             **LAUNCH_INFO_SCHEMA,
                           }.freeze

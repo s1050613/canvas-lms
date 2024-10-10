@@ -152,72 +152,6 @@ describe ContextController do
         expect(assigns[:js_env][:STUDENT_CONTEXT_CARDS_ENABLED]).to be_falsey
       end
     end
-
-    context "when enable_user_notes is true" do
-      before :once do
-        a = Account.default
-        a.enable_user_notes = true
-        a.save!
-      end
-
-      context "when the deprecate_faculty_journal flag is disabled" do
-        before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-        it "sets manage_user_notes permission ENV var to true for teachers" do
-          user_session(@teacher)
-          get :roster, params: { course_id: @course.id }
-          expect(assigns[:js_env][:permissions][:manage_user_notes]).to be true
-        end
-
-        it "sets manage_user_notes permission ENV var to true for account admins" do
-          account_admin_user
-          user_session(@admin)
-          get :roster, params: { course_id: @course.id }
-          expect(assigns[:js_env][:permissions][:manage_user_notes]).to be true
-        end
-
-        it "sets manage_user_notes permission ENV var to false for students" do
-          user_session(@student)
-          get :roster, params: { course_id: @course.id }
-          expect(assigns[:js_env][:permissions][:manage_user_notes]).to be false
-        end
-      end
-
-      context "when the deprecated_faculty_journal flag is enabled" do
-        it "sets manage_user_notes permission ENV var to false for teachers" do
-          user_session(@teacher)
-          get :roster, params: { course_id: @course.id }
-          expect(assigns[:js_env][:permissions][:manage_user_notes]).to be false
-        end
-      end
-    end
-
-    context "when enable_user_notes is false" do
-      before :once do
-        a = Account.default
-        a.enable_user_notes = false
-        a.save!
-      end
-
-      it "sets manage_user_notes permission ENV var to false for teachers" do
-        user_session(@teacher)
-        get :roster, params: { course_id: @course.id }
-        expect(assigns[:js_env][:permissions][:manage_user_notes]).to be false
-      end
-
-      it "sets manage_user_notes permission ENV var to false for account admins" do
-        account_admin_user
-        user_session(@admin)
-        get :roster, params: { course_id: @course.id }
-        expect(assigns[:js_env][:permissions][:manage_user_notes]).to be false
-      end
-
-      it "sets manage_user_notes permission ENV var to false for students" do
-        user_session(@student)
-        get :roster, params: { course_id: @course.id }
-        expect(assigns[:js_env][:permissions][:manage_user_notes]).to be false
-      end
-    end
   end
 
   describe "GET 'roster_user'" do
@@ -401,6 +335,35 @@ describe ContextController do
 
         expect(assigns[:_crumbs]).to include(["People", "/courses/#{@course.id}/users", {}])
         expect(assigns[:_crumbs]).to include([@student.short_name.to_s, "/courses/#{@course.id}/users/#{@student.id}", {}])
+      end
+
+      it "does not assign messages if show_recent_messages_on_new_roster_user_page ff is disabled" do
+        user_session(@admin)
+        Account.site_admin.disable_feature!(:show_recent_messages_on_new_roster_user_page)
+        get "roster_user", params: { course_id: @course.id, id: @student.id }
+        expect(assigns[:messages]).to be_nil
+      end
+
+      context "show_recent_messages_on_new_roster_user_page enabled" do
+        before do
+          Account.site_admin.enable_feature!(:show_recent_messages_on_new_roster_user_page)
+          topic = @course.discussion_topics.create!(user: @student, message: "Discussion")
+          (1..11).each { |number| topic.discussion_entries.create!(message: number, user: @student) }
+          user_session(@admin)
+        end
+
+        it "only shows 10 most recent messages" do
+          get "roster_user", params: { course_id: @course.id, id: @student.id }
+          messages = assigns[:messages]
+          expect(messages.count).to eq(10)
+          expect(messages.pluck(:message)).to eq(%w[11 10 9 8 7 6 5 4 3 2])
+        end
+
+        it "requires discussion entry :read permission" do
+          allow_any_instance_of(DiscussionEntry).to receive(:grants_right?).with(@admin, :read).and_return(false)
+          get "roster_user", params: { course_id: @course.id, id: @student.id }
+          expect(assigns[:messages]).to be_nil
+        end
       end
     end
   end

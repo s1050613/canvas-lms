@@ -37,7 +37,7 @@ export const FormControlButtons = ({
   isEditing: boolean
   published: boolean
   shouldShowSaveAndPublishButton: boolean
-  submitForm: (publish: boolean) => void
+  submitForm: (publish: boolean | undefined) => void
   isSubmitting: boolean
   willAnnouncementPostRightAway: boolean
 }) => {
@@ -80,14 +80,14 @@ export const FormControlButtons = ({
       {isAnnouncement ? (
         <Button
           type="submit"
-          // we always process announcements as published.
-          onClick={() => submitForm(true)}
+          // don't publish delayed announcements
+          onClick={() => submitForm(willAnnouncementPostRightAway ? true : undefined)}
           color="primary"
           margin="xxx-small"
           data-testid="announcement-submit-button"
           disabled={isSubmitting}
         >
-          {willAnnouncementPostRightAway ? I18n.t('Publish') : I18n.t('Save')}
+          {willAnnouncementPostRightAway && !isEditing ? I18n.t('Publish') : I18n.t('Save')}
         </Button>
       ) : (
         <Button

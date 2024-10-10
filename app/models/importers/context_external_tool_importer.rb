@@ -60,13 +60,14 @@ module Importers
         url = migration.process_domain_substitutions(url) if migration
         item.url = url
       end
-      item.domain = hash[:domain] unless hash[:domain].blank?
+      item.domain = hash[:domain]
       item.privacy_level = hash[:privacy_level] || "name_only"
       item.not_selectable = hash[:not_selectable] if hash[:not_selectable]
       item.consumer_key ||= hash[:consumer_key] || "fake"
       item.shared_secret ||= hash[:shared_secret] || "fake"
       item.developer_key_id ||= hash.dig(:settings, :client_id)
       item.lti_version = hash[:lti_version] || (hash.dig(:settings, :client_id) && "1.3") || (hash.dig(:settings, :use_1_3) && "1.3") || "1.1"
+      item.unified_tool_id = hash[:unified_tool_id]
       item.settings = create_tool_settings(hash)
 
       Lti::ResourcePlacement::PLACEMENTS.each do |placement|

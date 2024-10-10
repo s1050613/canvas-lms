@@ -705,7 +705,7 @@ describe DiscussionTopicsController, type: :request do
                             "media_entry_id" => @attachment.media_entry_id,
                             "category" => "uncategorized",
                             "visibility_level" => @attachment.visibility_level }],
-        "discussion_type" => "side_comment",
+        "discussion_type" => "not_threaded",
         "locked" => false,
         "can_lock" => true,
         "comments_disabled" => false,
@@ -1113,6 +1113,37 @@ describe DiscussionTopicsController, type: :request do
           expect(json.count).to eq(1)
           expect(json[0]["id"]).to eq(@announcement.id)
           expect(json[0]["is_section_specific"]).to be(true)
+        end
+
+        it "student in section should be able to get the announcement details" do
+          json = api_call_as_user(@student1,
+                                  :get,
+                                  "/api/v1/courses/#{@course.id}/discussion_topics/#{@announcement.id}",
+                                  {
+                                    controller: "discussion_topics_api",
+                                    action: "show",
+                                    format: "json",
+                                    course_id: @course.id,
+                                    topic_id: @announcement.id,
+                                  })
+
+          expect(json["id"]).to eq(@announcement.id)
+        end
+
+        it "student not in section should not be able to get the announcement details" do
+          api_call_as_user(@student2,
+                           :get,
+                           "/api/v1/courses/#{@course.id}/discussion_topics/#{@announcement.id}",
+                           {
+                             controller: "discussion_topics_api",
+                             action: "show",
+                             format: "json",
+                             course_id: @course.id,
+                             topic_id: @announcement.id,
+                           },
+                           {},
+                           {},
+                           { expected_status: 401 })
         end
 
         it "student not in section should not be able to see section specific announcements" do
@@ -2173,6 +2204,19 @@ describe DiscussionTopicsController, type: :request do
     end
   end
 
+  it "translates user content in topics without verifiers" do
+    should_translate_user_content(@course, false) do |user_content|
+      @topic ||= create_topic(@course, title: "Topic 1", message: user_content)
+      json = api_call(
+        :get,
+        "/api/v1/courses/#{@course.id}/discussion_topics",
+        { controller: "discussion_topics", action: "index", format: "json", course_id: @course.id.to_s, no_verifiers: true }
+      )
+      expect(json.size).to eq 1
+      json.first["message"]
+    end
+  end
+
   it "paginates by the per_page" do
     100.times { |i| @course.discussion_topics.create!(title: i.to_s, message: i.to_s) }
     expect(@course.discussion_topics.count).to eq 100
@@ -2273,7 +2317,7 @@ describe DiscussionTopicsController, type: :request do
       "root_topic_id" => nil,
       "topic_children" => [],
       "group_topic_children" => [],
-      "discussion_type" => "side_comment",
+      "discussion_type" => "not_threaded",
       "permissions" => { "delete" => true, "attach" => true, "update" => true, "reply" => true, "manage_assign_to" => false },
       "locked" => false,
       "can_lock" => true,
@@ -2330,7 +2374,7 @@ describe DiscussionTopicsController, type: :request do
       "created_at" => announcement.created_at.iso8601,
       "delayed_post_at" => nil,
       "discussion_subentry_count" => 0,
-      "discussion_type" => "side_comment",
+      "discussion_type" => "not_threaded",
       "group_category_id" => nil,
       "group_topic_children" => [],
       "html_url" => "http://www.example.com/groups/#{@group.id}/discussion_topics/#{announcement.id}",
@@ -2737,8 +2781,8 @@ describe DiscussionTopicsController, type: :request do
     end
 
     it "sorts top-level entries by descending created_at" do
-      @older_entry = create_entry(@topic, message: "older top-level entry", created_at: Time.now - 1.minute)
-      @newer_entry = create_entry(@topic, message: "newer top-level entry", created_at: Time.now + 1.minute)
+      @older_entry = create_entry(@topic, message: "older top-level entry", created_at: 1.minute.ago)
+      @newer_entry = create_entry(@topic, message: "newer top-level entry", created_at: 1.minute.from_now)
       json = api_call(
         :get,
         "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries.json",
@@ -2754,8 +2798,8 @@ describe DiscussionTopicsController, type: :request do
     end
 
     it "sorts replies included on top-level entries by descending created_at" do
-      @older_reply = create_reply(@entry, message: "older reply", created_at: Time.now - 1.minute)
-      @newer_reply = create_reply(@entry, message: "newer reply", created_at: Time.now + 1.minute)
+      @older_reply = create_reply(@entry, message: "older reply", created_at: 1.minute.ago)
+      @newer_reply = create_reply(@entry, message: "newer reply", created_at: 1.minute.from_now)
       json = api_call(
         :get,
         "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries.json",
@@ -2880,9 +2924,28 @@ describe DiscussionTopicsController, type: :request do
       end
     end
 
+    it "translates user content in replies without verifiers" do
+      should_translate_user_content(@course, false) do |user_content|
+        @reply.update_attribute("message", user_content)
+        json = api_call(
+          :get,
+          "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries/#{@entry.id}/replies.json",
+          { controller: "discussion_topics_api",
+            action: "replies",
+            format: "json",
+            course_id: @course.id.to_s,
+            topic_id: @topic.id.to_s,
+            entry_id: @entry.id.to_s,
+            no_verifiers: true }
+        )
+        expect(json.size).to eq 1
+        json.first["message"]
+      end
+    end
+
     it "sorts replies by descending created_at" do
-      @older_reply = create_reply(@entry, message: "older reply", created_at: Time.now - 1.minute)
-      @newer_reply = create_reply(@entry, message: "newer reply", created_at: Time.now + 1.minute)
+      @older_reply = create_reply(@entry, message: "older reply", created_at: 1.minute.ago)
+      @newer_reply = create_reply(@entry, message: "newer reply", created_at: 1.minute.from_now)
       json = api_call(
         :get,
         "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries/#{@entry.id}/replies.json",
@@ -3391,7 +3454,7 @@ describe DiscussionTopicsController, type: :request do
 
     def call_mark_all_as_read_state(new_state, opts = {})
       method = (new_state == "read") ? :put : :delete
-      url = +"/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/read_all.json"
+      url = "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/read_all.json"
       expected_params = { controller: "discussion_topics_api",
                           action: "mark_all_#{new_state}",
                           format: "json",
@@ -3833,7 +3896,7 @@ describe DiscussionTopicsController, type: :request do
         @reply1 = @root1.reply_from(user: @teacher, html: "reply1")
 
         # materialized view jobs are now delayed
-        Timecop.travel(Time.now + 20.seconds) do
+        Timecop.travel(20.seconds.from_now) do
           run_jobs
 
           # make everything slightly in the past to test updating
@@ -3882,7 +3945,7 @@ describe DiscussionTopicsController, type: :request do
       @root1 = @topic.reply_from(user: @student, html: "root1")
 
       # materialized view jobs are now delayed
-      Timecop.travel(Time.now + 20.seconds) do
+      Timecop.travel(20.seconds.from_now) do
         run_jobs
 
         # make everything slightly in the past to test updating
@@ -3944,7 +4007,7 @@ describe DiscussionTopicsController, type: :request do
 
       link = "/courses/#{@course.id}/discussion_topics"
       # materialized view jobs are now delayed
-      Timecop.travel(Time.now + 20.seconds) do
+      Timecop.travel(20.seconds.from_now) do
         run_jobs
 
         # make everything slightly in the past to test updating
@@ -4322,7 +4385,7 @@ describe DiscussionTopicsController, type: :request do
     context "should not be shown" do
       def check_access(json)
         expect(json["new_entries"]).to be_nil
-        expect(%w[unauthorized unauthenticated]).to include(json["status"])
+        expect(json["status"]).to be_in %w[unauthorized unauthenticated]
       end
 
       before do

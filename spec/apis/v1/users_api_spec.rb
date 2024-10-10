@@ -44,7 +44,7 @@ class TestUserApi
   def initialize
     @domain_root_account = Account.default
     @params = {}
-    @request = OpenStruct.new
+    @request = ActionDispatch::Request.new({})
   end
 end
 
@@ -62,7 +62,7 @@ describe Api::V1::User do
   before do
     @test_api = TestUserApi.new
     @test_api.services_enabled = []
-    @test_api.request.protocol = "http"
+    allow(@test_api.request).to receive_messages(protocol: "http://", host: "host")
   end
 
   context "user_json" do
@@ -83,7 +83,7 @@ describe Api::V1::User do
       @student.account.set_service_availability(:avatars, true)
       @student.account.save!
       expect(@test_api.user_json(@student, @admin, {}, [], @course)).not_to have_key("avatar_url")
-      expect(@test_api.user_json(@student, @admin, {}, ["avatar_url"], @course)["avatar_url"]).to match("h:/images/messages/avatar-50.png")
+      expect(@test_api.user_json(@student, @admin, {}, ["avatar_url"], @course)["avatar_url"]).to eql "http://host/images/messages/avatar-50.png"
     end
 
     it "only loads pseudonyms for the user once, even if there are multiple enrollments" do
@@ -779,7 +779,7 @@ describe "Users API", type: :request do
       json.each { |j| expect(j["url"]).to eq "http://www.example.com/courses/1" }
       expect(json[0]["created_at"]).to be > json[1]["created_at"]
       expect(json[0]["app_name"]).to be_nil
-      expect(json[1]["app_name"]).to eq "User-Generated"
+      expect(json[1]["app_name"]).to eq DeveloperKey::DEFAULT_KEY_NAME
       expect(response.headers["Link"]).to match(/next/)
       response.headers["Link"].split(",").find { |l| l =~ /<([^>]+)>.+next/ }
       url = $1
@@ -2055,7 +2055,7 @@ describe "Users API", type: :request do
             json = api_call(:put, @path, @path_options, { user: { pronouns: approved_pronoun } })
             expect(json["pronouns"]).to eq approved_pronoun
             expect(@student.reload.pronouns).to eq approved_pronoun
-            expect(@student.read_attribute(:pronouns)).to eq "he_him"
+            expect(@student["pronouns"]).to eq "he_him"
           end
 
           it "fixes the case when pronoun does not match default pronoun case" do
@@ -2064,7 +2064,7 @@ describe "Users API", type: :request do
             json = api_call(:put, @path, @path_options, { user: { pronouns: wrong_case_pronoun } })
             expect(json["pronouns"]).to eq expected_pronoun
             expect(@student.reload.pronouns).to eq expected_pronoun
-            expect(@student.read_attribute(:pronouns)).to eq "he_him"
+            expect(@student["pronouns"]).to eq "he_him"
           end
 
           it "fixes the case when pronoun does not match custom pronoun case" do
@@ -2077,7 +2077,7 @@ describe "Users API", type: :request do
             json = api_call(:put, @path, @path_options, { user: { pronouns: wrong_case_pronoun } })
             expect(json["pronouns"]).to eq expected_pronoun
             expect(@student.reload.pronouns).to eq expected_pronoun
-            expect(@student.read_attribute(:pronouns)).to eq expected_pronoun
+            expect(@student["pronouns"]).to eq expected_pronoun
           end
 
           it "does not update when pronoun is not approved" do
@@ -2132,6 +2132,50 @@ describe "Users API", type: :request do
                    user: { title: another_title }
                  })
         expect(user.profile.reload.title).to eq another_title
+      end
+
+      it "can update name pronunciation in user's profile if name pronunciation is enabled" do
+        Account.default.tap do |a|
+          a.settings[:enable_profiles] = true
+          a.settings[:enable_name_pronunciation] = true
+          a.save!
+        end
+
+        new_pronunciation = "Burni Nator"
+        json = api_call(:put, @path, @path_options, {
+                          user: { pronunciation: new_pronunciation }
+                        })
+        expect(json["pronunciation"]).to eq new_pronunciation
+        user = User.find(json["id"])
+        expect(user.profile.pronunciation).to eq new_pronunciation
+
+        another_pronunciation = "another pronunciation"
+        api_call(:put, @path, @path_options, {
+                   user: { pronunciation: another_pronunciation }
+                 })
+        expect(user.reload.profile.pronunciation).to eq another_pronunciation
+      end
+
+      it "will get an error when updating name pronunciation in user's profile if name pronunciation is disabled" do
+        Account.default.tap do |a|
+          a.settings[:enable_profiles] = true
+          a.settings[:enable_name_pronunciation] = false
+          a.save!
+        end
+
+        @student.profile.pronunciation = "My name pronunciation"
+        @student.profile.save!
+
+        original_pronunciation = @student.reload.profile.pronunciation
+        new_pronunciation = "Burni Nator"
+
+        raw_api_call(:put, @path, @path_options, { user: { pronunciation: new_pronunciation } })
+        json = JSON.parse(response.body)
+
+        expect(response).to have_http_status :unauthorized
+        expect(json["status"]).to eq "unauthorized"
+        expect(json["errors"][0]["message"]).to eq "user not authorized to perform that action"
+        expect(@student.reload.profile.pronunciation).to eq original_pronunciation
       end
 
       it "is able to update a user's profile with email" do
@@ -2678,6 +2722,24 @@ describe "Users API", type: :request do
                { name: "my_essay.doc" },
                {},
                expected_status: 401)
+    end
+
+    context "student in limited access account" do
+      before do
+        @user = course_with_student.user
+        @course.root_account.enable_feature!(:allow_limited_access_for_students)
+        @course.account.settings[:enable_limited_access_for_students] = true
+        @course.account.save!
+      end
+
+      it "renders unauthorized" do
+        api_call(:post,
+                 "/api/v1/users/#{@user.id}/files",
+                 { controller: "users", action: "create_file", format: "json", user_id: @user.to_param, },
+                 { name: "my_essay.doc" },
+                 {},
+                 expected_status: 401)
+      end
     end
   end
 

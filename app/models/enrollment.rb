@@ -45,8 +45,8 @@ class Enrollment < ActiveRecord::Base
   has_one :enrollment_state, dependent: :destroy, inverse_of: :enrollment
 
   has_many :role_overrides, as: :context, inverse_of: :context
-  has_many :pseudonyms, primary_key: :user_id, foreign_key: :user_id
-  has_many :course_account_associations, foreign_key: "course_id", primary_key: "course_id"
+  has_many :pseudonyms, primary_key: :user_id, foreign_key: :user_id, inverse_of: false
+  has_many :course_account_associations, foreign_key: "course_id", primary_key: "course_id", inverse_of: false
   has_many :scores, -> { active }
 
   validates :user_id, :course_id, :type, :root_account_id, :course_section_id, :workflow_state, :role_id, presence: true
@@ -311,13 +311,13 @@ class Enrollment < ActiveRecord::Base
   scope :not_fake, -> { where("enrollments.type<>'StudentViewEnrollment'") }
 
   scope :temporary_enrollment_recipients_for_provider, lambda { |user|
-    joins(:course).where(temporary_enrollment_source_user_id: user,
-                         courses: { workflow_state: %w[available claimed created] })
+    active.joins(:course).where(temporary_enrollment_source_user_id: user,
+                                courses: { workflow_state: %w[available claimed created] })
   }
 
   scope :temporary_enrollments_for_recipient, lambda { |user|
-    joins(:course).where(user_id: user, courses: { workflow_state: %w[available claimed created] })
-                  .where.not(temporary_enrollment_source_user_id: nil)
+    active.joins(:course).where(user_id: user, courses: { workflow_state: %w[available claimed created] })
+          .where.not(temporary_enrollment_source_user_id: nil)
   }
 
   def self.readable_types
@@ -717,9 +717,7 @@ class Enrollment < ActiveRecord::Base
     # this method was written by Alan Smithee
     user.shard.activate do
       if user.favorites.where(context_type: "Course").exists? # only add a favorite if they've ever favorited anything even if it's no longer in effect
-        Favorite.unique_constraint_retry do
-          user.favorites.where(context_type: "Course", context_id: course).first_or_create!
-        end
+        Favorite.create_or_find_by(user:, context: course)
       end
     end
   end
@@ -862,7 +860,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   def completed_at
-    if (date = read_attribute(:completed_at))
+    if (date = super)
       date
     elsif !new_record? && completed?
       enrollment_state.state_started_at
@@ -960,7 +958,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   def user_name
-    read_attribute(:user_name) || user.name rescue t("#enrollment.default_user_name", "Unknown User")
+    has_attribute?("user_name") ? self["user_name"] : user.name
   end
 
   def context
@@ -1050,8 +1048,8 @@ class Enrollment < ActiveRecord::Base
   # stale! And once you've added the call, add the condition to the comment
   # here for future enlightenment.
 
-  def self.recompute_final_score(*args, **kwargs)
-    GradeCalculator.recompute_final_score(*args, **kwargs)
+  def self.recompute_final_score(*, **)
+    GradeCalculator.recompute_final_score(*, **)
   end
 
   # This method is intended to not duplicate work for a single user.
@@ -1182,7 +1180,7 @@ class Enrollment < ActiveRecord::Base
 
   def cached_score_or_grade(current_or_final, score_or_grade, posted_or_unposted, id_opts = nil)
     score = find_score(id_opts)
-    method = +"#{current_or_final}_#{score_or_grade}"
+    method = "#{current_or_final}_#{score_or_grade}"
     method.prepend("unposted_") if posted_or_unposted == :unposted
     score&.send(method)
   end
@@ -1411,15 +1409,15 @@ class Enrollment < ActiveRecord::Base
   def assign_uuid
     # DON'T use ||=, because that will cause an immediate save to the db if it
     # doesn't already exist
-    self.uuid = CanvasSlug.generate_securish_uuid unless read_attribute(:uuid)
+    self.uuid = CanvasSlug.generate_securish_uuid unless self["uuid"]
   end
   protected :assign_uuid
 
   def uuid
-    unless read_attribute(:uuid)
+    unless super
       update_attribute(:uuid, CanvasSlug.generate_securish_uuid)
     end
-    read_attribute(:uuid)
+    super
   end
 
   def self.limit_privileges_to_course_section!(course, user, limit)
@@ -1485,7 +1483,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   def total_activity_time
-    read_attribute(:total_activity_time).to_i
+    super.to_i
   end
 
   def touch_graders_if_needed

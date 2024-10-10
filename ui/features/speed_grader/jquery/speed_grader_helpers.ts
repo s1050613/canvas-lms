@@ -72,7 +72,6 @@ const speedGraderHelpers = {
     parts.push(` src="${src}"`)
     Object.keys(options).forEach(option => {
       let key = option
-      // @ts-expect-error
       const value = options[key]
       if (key === 'className') {
         key = 'class'
@@ -106,6 +105,7 @@ const speedGraderHelpers = {
     }
     const select = '&version='
     // check if the version is valid, or matches the index
+    // @ts-expect-error
     const version = submission.submission_history[currentSelectedIndex].submission.version
     if (version == null || Number.isNaN(Number(version))) {
       return select + currentSelectedIndex
@@ -247,6 +247,7 @@ const speedGraderHelpers = {
     event.preventDefault()
 
     $(event.target).prop('disabled', true).text(I18n.t('turnitin.resubmitting', 'Resubmitting...'))
+    // @ts-expect-error
     $.ajaxJSON(resubmitUrl, 'POST', {}, () => {
       speedGraderHelpers.reloadPage()
     })

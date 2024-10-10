@@ -39,8 +39,8 @@ import {
 import {ConversationContext} from '../../../util/constants'
 import {useLazyQuery, useQuery} from 'react-apollo'
 import {RECIPIENTS_OBSERVERS_QUERY, INBOX_SETTINGS_QUERY} from '../../../graphql/Queries'
-import {ModalBodyContext} from '../../utils/constants'
-import {translateMessage, handleTranslatedModalBody} from '../../utils/inbox_translator'
+import {ModalBodyContext, translationSeparator} from '../../utils/constants'
+import {translateMessage, handleTranslatedModalBody, stripSignature} from '../../utils/inbox_translator'
 
 const I18n = useI18nScope('conversations_2')
 
@@ -55,7 +55,6 @@ const ComposeModalContainer = props => {
   const [bodyMessages, setBodyMessages] = useState([])
   const [addressBookMessages, setAddressBookMessages] = useState([])
   const [sendIndividualMessages, setSendIndividualMessages] = useState(false)
-  const [userNote, setUserNote] = useState(false)
   const [selectedContext, setSelectedContext] = useState()
   const [courseMessages, setCourseMessages] = useState([])
   const [mediaUploadOpen, setMediaUploadOpen] = useState(false)
@@ -83,7 +82,7 @@ const ComposeModalContainer = props => {
   // Translation features
   const [translating, setTranslating] = useState(false)
   const [messagePosition, setMessagePosition] = useState(null)
-  const [translationTargetLanguage, setTranslationTargetLanguage] = useState('')
+  const [translationTargetLanguage, setTranslationTargetLanguage] = useState('en')
 
   const [
     getRecipientsObserversQuery,
@@ -263,10 +262,6 @@ const ComposeModalContainer = props => {
     }
   }
 
-  const onUserNoteChange = () => {
-    setUserNote(prev => !prev)
-  }
-
   const onSendIndividualMessagesChange = () => {
     setSendIndividualMessages(prev => !prev)
   }
@@ -280,15 +275,18 @@ const ComposeModalContainer = props => {
 
   /** TRANSLATION CODE */
   const translateBody = isPrimary => {
+    translateBodyWith(isPrimary, body)
+  }
+
+  const translateBodyWith = (isPrimary, bodyText, { tgtLang } = {}) => {
     setTranslating(true)
     translateMessage({
       subject: subject,
-      body: body,
+      body: bodyText,
       signature: activeSignature,
-      srcLang: 'en',
-      tgtLang: translationTargetLanguage,
+      tgtLang: typeof tgtLang !== 'undefined' ? tgtLang : translationTargetLanguage,
       callback: translatedText => {
-        handleTranslatedModalBody(translatedText, isPrimary, activeSignature, setBody)
+        handleTranslatedModalBody(translatedText, isPrimary, activeSignature, setBody, bodyText)
         setTranslating(false)
       },
     })
@@ -368,7 +366,6 @@ const ComposeModalContainer = props => {
         variables: {
           attachmentIds: attachments.map(a => a.id),
           body,
-          userNote,
           includedMessages: props.pastConversation?.conversationMessagesConnection.nodes.map(
             c => c._id
           ),
@@ -396,7 +393,6 @@ const ComposeModalContainer = props => {
           attachmentIds: attachments.map(a => a.id),
           bulkMessage: sendIndividualMessages,
           body,
-          userNote,
           contextCode: selectedContext?.contextID || ENV?.CONVERSATIONS?.ACCOUNT_CONTEXT_CODE,
           recipients: props.selectedIds.map(rec => rec?._id || rec.id),
           subject,
@@ -443,10 +439,12 @@ const ComposeModalContainer = props => {
     setBody,
     translating,
     setTranslating,
+    translationTargetLanguage,
     setTranslationTargetLanguage,
     messagePosition,
     setMessagePosition,
     translateBody,
+    translateBodyWith
   }
 
   const shouldShowModalSpinner =
@@ -495,7 +493,6 @@ const ComposeModalContainer = props => {
                 {isSubmissionCommentsType ? null : (
                   <HeaderInputs
                     activeCourseFilter={selectedContext}
-                    setUserNote={setUserNote}
                     contextName={props.pastConversation?.contextName}
                     courses={props.courses}
                     selectedRecipients={props.selectedIds}
@@ -504,11 +501,9 @@ const ComposeModalContainer = props => {
                     isForward={props.isForward}
                     onContextSelect={onContextSelect}
                     onSelectedIdsChange={onSelectedIdsChange}
-                    onUserNoteChange={onUserNoteChange}
                     onSendIndividualMessagesChange={onSendIndividualMessagesChange}
                     onSubjectChange={onSubjectChange}
                     onAddressBookInputValueChange={setAddressBookInputValue}
-                    userNote={userNote}
                     sendIndividualMessages={sendIndividualMessages}
                     subject={
                       props.isReply || props.isForward ? props.pastConversation?.subject : subject

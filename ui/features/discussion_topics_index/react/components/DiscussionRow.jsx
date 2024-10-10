@@ -52,6 +52,7 @@ import {
   IconUpdownLine,
   IconUserLine,
   IconPermissionsLine,
+  IconEditLine,
 } from '@instructure/ui-icons'
 import {Link} from '@instructure/ui-link'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
@@ -72,6 +73,7 @@ import select from '@canvas/obj-select'
 import ToggleIcon from './ToggleIcon'
 import UnreadBadge from '@canvas/unread-badge'
 import {isPassedDelayedPostAt} from '@canvas/datetime/react/date-utils'
+import WithBreakpoints, {breakpointsShape} from '@canvas/with-breakpoints'
 
 const I18n = useI18nScope('discussion_row')
 
@@ -109,7 +111,8 @@ const dropTarget = {
     props.moveCard(dragIndex, hoverIndex)
   },
 }
-
+const REPLY_TO_TOPIC = 'reply_to_topic'
+const REPLY_TO_ENTRY = 'reply_to_entry'
 class DiscussionRow extends Component {
   static propTypes = {
     canPublish: bool.isRequired,
@@ -144,6 +147,7 @@ class DiscussionRow extends Component {
     updateDiscussion: func.isRequired,
     DIRECT_SHARE_ENABLED: bool.isRequired,
     dateFormatter: func.isRequired,
+    breakpoints: breakpointsShape.isRequired,
   }
 
   static defaultProps = {
@@ -163,6 +167,7 @@ class DiscussionRow extends Component {
     masteryPathsPillLabel: '',
     onMoveDiscussion: null,
     onOpenAssignToTray: null,
+    breakpoints: {},
   }
 
   componentDidMount = () => {
@@ -245,6 +250,9 @@ class DiscussionRow extends Component {
         break
       case 'assignTo':
         this.props.onOpenAssignToTray(this.props.discussion)
+        break
+      case 'edit':
+        window.location.assign(`${this.props.discussion.html_url}/edit`)
         break
       default:
         throw new Error('Unknown manage discussion action encountered')
@@ -484,12 +492,7 @@ class DiscussionRow extends Component {
     } else if (menuTool.icon_url) {
       return (
         <span>
-          <img
-            className="icon"
-            alt=""
-            src={menuTool.icon_url}
-            style={{width: '1.2rem', 'margin-right': '0.25rem'}}
-          />
+          <img alt={menuTool.title} className="icon lti_tool_icon" src={menuTool.icon_url} />
           &nbsp;&nbsp;{menuTool.title}
         </span>
       )
@@ -506,6 +509,21 @@ class DiscussionRow extends Component {
   renderMenuList = () => {
     const discussionTitle = this.props.discussion.title
     const menuList = []
+
+    if (this.props.discussion?.permissions?.update
+      && this.props.discussion?.html_url) {
+      menuList.push(
+        this.createMenuItem(
+          'edit',
+          <span aria-hidden="true">
+            <IconEditLine />
+            &nbsp;&nbsp;{I18n.t('Edit')}
+          </span>,
+          I18n.t('Edit discussion %{title}', {title: discussionTitle})
+        )
+      )
+    }
+
     if (this.props.displayLockMenuItem) {
       const menuLabel = this.props.discussion.locked
         ? I18n.t('Open for comments')
@@ -526,7 +544,10 @@ class DiscussionRow extends Component {
       )
     }
 
-    if (this.props.displayDifferentiatedModulesTray) {
+    const showAssignTo =
+      this.props.discussion.assignment_id ||
+      (!this.props.discussion.assignment_id && !this.props.discussion.group_category_id)
+    if (this.props.displayDifferentiatedModulesTray && showAssignTo) {
       menuList.push(
         this.createMenuItem(
           'assignTo',
@@ -729,6 +750,10 @@ class DiscussionRow extends Component {
             href={linkUrl}
             ref={refFn}
             data-testid={`discussion-link-${this.props.discussion.id}`}
+            isWithinText={false}
+            themeOverride={{
+              fontWeight: 700,
+            }}
           >
             {this.props.discussion.read_state !== 'read' && (
               <ScreenReaderContent>{I18n.t('unread,')}</ScreenReaderContent>
@@ -741,22 +766,21 @@ class DiscussionRow extends Component {
     )
   }
 
-  renderLastReplyAt = () => {
+  renderLastReplyAt = size => {
     const datetimeString = this.props.dateFormatter(this.props.discussion.last_reply_at)
     if (!datetimeString.length || this.props.discussion.discussion_subentry_count === 0) {
       return null
     }
     return (
-      <Text
-        className="ic-item-row__content-col ic-discussion-row__content last-reply-at"
-        color={this.isInaccessibleDueToAnonymity() ? 'secondary' : null}
-      >
-        {I18n.t('Last post at %{date}', {date: datetimeString})}
-      </Text>
+      <span className="ic-discussion-row__content last-reply-at">
+        <Text color={this.isInaccessibleDueToAnonymity() ? 'secondary' : null} size={size}>
+          {I18n.t('Last post at %{date}', {date: datetimeString})}
+        </Text>
+      </span>
     )
   }
 
-  renderDueDate = () => {
+  renderDueDate = size => {
     const assignment = this.props.discussion.assignment
     let dueDateString = null
     let className = ''
@@ -769,24 +793,66 @@ class DiscussionRow extends Component {
         date: this.props.dateFormatter(this.props.discussion.todo_date),
       })
     }
-    return <div className={`ic-discussion-row__content ${className}`}>{dueDateString}</div>
+    return (
+      dueDateString && (
+        <span className={`ic-discussion-row__content ${className}`}>
+          <Text size={size}>{dueDateString}</Text>
+        </span>
+      )
+    )
   }
 
-  renderAvailabilityDate = () => {
+  renderAvailabilityDate = size => {
     // Check if we are too early for the topic to be available
     const availabilityString = this.getAvailabilityString()
     return (
       availabilityString && (
-        <div className="discussion-availability ic-item-row__content-col ic-discussion-row__content">
-          {this.getAvailabilityString()}
-        </div>
+        <span className="discussion-availability ic-discussion-row__content">
+          <Text size={size}>{this.getAvailabilityString()}</Text>
+        </span>
+      )
+    )
+  }
+
+  renderCheckpointInfo = (size, timestampStyleOverride) => {
+    const {assignment} = this.props.discussion
+    let dueDateString = null
+
+    if (assignment && assignment?.checkpoints?.length > 0) {
+      const replyToTopic = assignment.checkpoints.find(e => e.tag === REPLY_TO_TOPIC).due_at
+      const replyToEntry = assignment.checkpoints.find(e => e.tag === REPLY_TO_ENTRY).due_at
+      const noDate = I18n.t('No Due Date')
+
+      dueDateString = I18n.t(
+        ' Reply to topic: %{topicDate}  Required replies (%{count}): %{entryDate}',
+        {
+          topicDate: replyToTopic ? this.props.dateFormatter(replyToTopic) : noDate,
+          entryDate: replyToEntry ? this.props.dateFormatter(replyToEntry) : noDate,
+          count: this.props.discussion.reply_to_entry_required_count,
+        }
+      )
+    }
+    return (
+      dueDateString && (
+        <Grid.Row>
+          <Grid.Col textAlign="end">
+            <span aria-hidden="true" style={timestampStyleOverride}>
+              <span className="ic-discussion-row__content due-date">
+                <Text size={size}>{dueDateString}</Text>
+              </span>
+            </span>
+          </Grid.Col>
+        </Grid.Row>
       )
     )
   }
 
   renderIcon = () => {
     const accessibleGradedIcon = (isSuccessColor = true) => (
-      <Text color={isSuccessColor ? 'success' : 'secondary'} size="large">
+      <Text
+        color={isSuccessColor ? 'success' : 'secondary'}
+        size={this.props.breakpoints.mobileOnly ? 'medium' : 'large'}
+      >
         <IconAssignmentLine title={I18n.t('Graded Discussion')} />
       </Text>
     )
@@ -807,7 +873,7 @@ class DiscussionRow extends Component {
       </span>
     ) : null
     const maybeDisplayManageMenu = this.props.displayManageMenu ? (
-      <span display="inline-block">
+      <span display="inline-block" className={this.props.breakpoints.mobileOnly ? 'mobile' : ''}>
         <DiscussionManageMenu
           menuRefFn={c => {
             this._manageMenu = c
@@ -833,19 +899,34 @@ class DiscussionRow extends Component {
         {I18n.t('Mastery Paths')}
       </a>
     ) : null
-    const actionsContent = [this.readCount(), this.publishButton(), this.subscribeButton()]
+    const actionsContent = [this.publishButton(), this.subscribeButton()]
+    const style = {
+      display: 'flex',
+      justifyContent: this.props.breakpoints.mobileOnly ? 'space-between' : 'end',
+      padding: this.props.breakpoints.mobileOnly ? '1em 0' : '0',
+    }
     return (
-      <div>
-        <div>
+      <div style={style}>
+        <div
+          className={'ic-button-line-left ' + (this.props.breakpoints.mobileOnly ? 'mobile' : '')}
+        >
+          {this.props.breakpoints.mobileOnly && this.renderIcon()}
           {maybeRenderMasteryPathsPill}
           {maybeRenderMasteryPathsLink}
           {maybeRenderPeerReviewIcon}
+          {this.readCount()}
+        </div>
+        <div
+          className={'ic-button-line-right ' + (this.props.breakpoints.mobileOnly ? 'mobile' : '')}
+        >
           {actionsContent}
-          <span
-            ref={this.initializeMasterCourseIcon}
-            data-testid="ic-master-course-icon-container"
-            className="ic-item-row__master-course-lock"
-          />
+          {this.props.masterCourseData && (
+            <span
+              ref={this.initializeMasterCourseIcon}
+              data-testid="ic-master-course-icon-container"
+              className="ic-item-row__master-course-lock"
+            />
+          )}
           {maybeDisplayManageMenu}
         </div>
       </div>
@@ -853,17 +934,35 @@ class DiscussionRow extends Component {
   }
 
   renderDiscussion = () => {
-    const classes = cx('ic-item-row')
+    const classes = cx({
+      'ic-item-row': true,
+      'ic-discussion-row': true,
+      mobile: this.props.breakpoints.mobileOnly,
+    })
+    const timestampStyleOverride = {
+      textAlign: this.props.breakpoints.mobileOnly ? 'end' : '',
+      width: this.props.breakpoints.mobileOnly ? '100%' : '',
+      display: this.props.breakpoints.mobileOnly ? 'inline-block' : '',
+    }
+    const timestampTextSize = this.props.breakpoints.mobileOnly ? 'small' : 'medium'
     return this.props.connectDropTarget(
       this.props.connectDragSource(
         <div
-          style={{opacity: this.props.isDragging ? 0 : 1}}
-          className={`${classes} ic-discussion-row`}
+          style={{
+            opacity: this.props.isDragging ? 0 : 1,
+          }}
+          className={`${classes}`}
         >
           <div className="ic-discussion-row-container">
+            {this.props.breakpoints.mobileOnly && this.renderBlueUnreadBadge()}
             <span className="ic-drag-handle-container">{this.renderDragHandleIfAppropriate()}</span>
-            <span className="ic-drag-handle-container">{this.renderIcon()}</span>
-            <span className="ic-discussion-content-container">
+            {!this.props.breakpoints.mobileOnly && this.renderIcon()}
+            <span
+              className="ic-discussion-content-container"
+              style={{
+                marginLeft: this.props.breakpoints.mobileOnly ? '16px' : 0,
+              }}
+            >
               <Grid startAt="medium" vAlign="middle" rowSpacing="none" colSpacing="none">
                 <Grid.Row vAlign="middle">
                   <Grid.Col vAlign="middle" textAlign="start">
@@ -876,15 +975,31 @@ class DiscussionRow extends Component {
                 </Grid.Row>
                 <Grid.Row>
                   <Grid.Col textAlign="start">
-                    <span aria-hidden="true">{this.renderLastReplyAt()}</span>
+                    <span
+                      aria-hidden="true"
+                      style={this.renderLastReplyAt() ? timestampStyleOverride : {}}
+                    >
+                      {this.renderLastReplyAt(timestampTextSize)}
+                    </span>
                   </Grid.Col>
                   <Grid.Col textAlign="center">
-                    <span aria-hidden="true">{this.renderAvailabilityDate()}</span>
+                    <span
+                      aria-hidden="true"
+                      style={this.renderAvailabilityDate() ? timestampStyleOverride : {}}
+                    >
+                      {this.renderAvailabilityDate(timestampTextSize)}
+                    </span>
                   </Grid.Col>
                   <Grid.Col textAlign="end">
-                    <span aria-hidden="true">{this.renderDueDate()}</span>
+                    <span
+                      aria-hidden="true"
+                      style={this.renderDueDate() ? timestampStyleOverride : {}}
+                    >
+                      {this.renderDueDate(timestampTextSize)}
+                    </span>
                   </Grid.Col>
                 </Grid.Row>
+                {this.renderCheckpointInfo(timestampTextSize, timestampStyleOverride)}
               </Grid>
             </span>
           </div>
@@ -895,13 +1010,18 @@ class DiscussionRow extends Component {
   }
 
   renderBlueUnreadBadge() {
+    const mobileTheme = {
+      top: this.props.breakpoints.mobileOnly ? '19px' : 0,
+      position: this.props.breakpoints.mobileOnly ? 'absolute' : 'relative',
+      marginLeft: this.props.breakpoints.mobileOnly && this.props.draggable ? '11px' : '0px',
+    }
     if (this.props.discussion.read_state !== 'read') {
       return (
-        <div data-testid="ic-blue-unread-badge">
+        <div data-testid="ic-blue-unread-badge" style={mobileTheme}>
           <Badge margin="0 small x-small 0" standalone={true} type="notification" />
         </div>
       )
-    } else {
+    } else if (!this.props.breakpoints.mobileOnly) {
       return (
         <View display="block" margin="0 small x-small 0">
           <View display="block" margin="0 small x-small 0" />
@@ -916,7 +1036,9 @@ class DiscussionRow extends Component {
         <Grid startAt="medium" vAlign="middle" colSpacing="none">
           <Grid.Row>
             {/* discussion topics is different for badges so we use our own read indicator instead of passing to isRead */}
-            <Grid.Col width="auto">{this.renderBlueUnreadBadge()}</Grid.Col>
+            <Grid.Col width="auto">
+              {!this.props.breakpoints.mobileOnly && this.renderBlueUnreadBadge()}
+            </Grid.Col>
             <Grid.Col>{this.renderDiscussion()}</Grid.Col>
           </Grid.Row>
         </Grid>
@@ -990,7 +1112,7 @@ function withDateFormatHook(Original) {
   return WrappedComponent
 }
 
-const WrappedDiscussionRow = withDateFormatHook(DiscussionRow)
+const WrappedDiscussionRow = WithBreakpoints(withDateFormatHook(DiscussionRow))
 
 export const DraggableDiscussionRow = compose(
   DropTarget('Discussion', dropTarget, dConnect => ({

@@ -110,7 +110,7 @@ describe ProfileController do
         put "update", params: { user: { pronouns: "  He/Him " } }, format: "json"
         expect(response).to be_successful
         @user.reload
-        expect(@user.read_attribute(:pronouns)).to eq "he_him"
+        expect(@user["pronouns"]).to eq "he_him"
         expect(@user.pronouns).to eq "He/Him"
       end
 
@@ -207,6 +207,8 @@ describe ProfileController do
     end
 
     it "alert is set to failed when user profile validation fails" do
+      Account.default.settings[:enable_name_pronunciation] = true
+      Account.default.save!
       pronunciation = "a" * 1000
       put "update_profile",
           params: { user: { short_name: "Monsturd", name: "Jenkins" },

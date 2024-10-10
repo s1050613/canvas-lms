@@ -87,20 +87,30 @@ const enrollmentsByCourse = [
   },
 ]
 
+const additionalRecipient = {
+  email: 'ross@email.com',
+  id: '6',
+  login_id: 'mel123',
+  name: 'Melvin',
+  sis_user_id: '11',
+}
+
 const props: Props = {
-  enrollment: {
-    email: 'mel@email.com',
-    id: '2',
-    login_id: 'mel123',
-    name: 'Melvin',
-    sis_user_id: '5',
-  } as User,
+  enrollments: [
+    {
+      email: 'mel@email.com',
+      id: '2',
+      login_id: 'mel123',
+      name: 'Melvin',
+      sis_user_id: '5',
+    },
+  ] as User[],
   user: {
     id: '1',
     name: 'John Smith',
     avatar_url: '',
   } as User,
-  permissions: truePermissions,
+  rolePermissions: truePermissions,
   roles: [
     {id: '91', name: 'StudentEnrollment', label: 'Student', base_role_name: 'StudentEnrollment'},
     {id: '92', name: 'TeacherEnrollment', label: 'Teacher', base_role_name: 'TeacherEnrollment'},
@@ -122,28 +132,22 @@ const ENROLLMENTS_URI = encodeURI(
   `/api/v1/users/${props.user.id}/courses?enrollment_state=active&include[]=sections&include[]=term&per_page=${MAX_ALLOWED_COURSES_PER_PAGE}&account_id=${enrollmentsByCourse[0].account_id}`
 )
 
-// converts local time to UTC time based on a given date and time
-// returns UTC time in 'HH:mm' format
-function localToUTCTime(date: string, time: string): string {
-  const localDate = new Date(`${date} ${time}`)
-  const utcHours = localDate.getUTCHours()
-  const utcMinutes = localDate.getUTCMinutes()
-
-  return `${String(utcHours).padStart(2, '0')}:${String(utcMinutes).padStart(2, '0')}`
-}
-
 function formatDateToLocalString(utcDateStr: string) {
   const date = new Date(utcDateStr)
   return {
-    date: new Intl.DateTimeFormat(undefined, {dateStyle: 'long'}).format(date),
-    time: new Intl.DateTimeFormat(undefined, {timeStyle: 'short', hour12: true}).format(date),
+    date: new Intl.DateTimeFormat('en-US', {dateStyle: 'long'}).format(date),
+    time: new Intl.DateTimeFormat('en-US', {timeStyle: 'short', hour12: true}).format(date),
   }
 }
 
 describe('TempEnrollAssign', () => {
   beforeAll(() => {
     // @ts-expect-error
-    window.ENV = {ACCOUNT_ID: '1'}
+    window.ENV = {
+      ACCOUNT_ID: '1',
+      CONTEXT_TIMEZONE: 'Asia/Brunei',
+      context_asset_string: 'account_1',
+    }
   })
 
   afterEach(() => {
@@ -171,6 +175,20 @@ describe('TempEnrollAssign', () => {
       )
 
       expect(defaultMessage).toBeInTheDocument()
+    })
+
+    it('changes text when multiple recipients are being assigned', async () => {
+      const modifiedProps = {
+        ...props,
+        enrollments: [...props.enrollments, additionalRecipient],
+      }
+      const {findByText} = render(<TempEnrollAssign {...modifiedProps} />)
+
+      const summaryMsg = await findByText(/Canvas will enroll 2 users/)
+      const readyMsg = await findByText(/2 users will receive/)
+
+      expect(summaryMsg).toBeInTheDocument()
+      expect(readyMsg).toBeInTheDocument()
     })
 
     it('triggers goBack when back is clicked', async () => {
@@ -219,9 +237,45 @@ describe('TempEnrollAssign', () => {
       fireEvent.input(endDate, {target: {value: 'Apr 12 2022'}})
       fireEvent.blur(endDate)
 
+      // Date.now sets default according to system timezone and cannot be fed a timezone; is midnight in manual testing
       expect((await findByTestId('temp-enroll-summary')).textContent).toBe(
         'Canvas will enroll Melvin as a Teacher in the selected courses of John Smith from Sun, Apr 10, 2022, 12:01 AM - Tue, Apr 12, 2022, 11:59 PM with an ending enrollment state of Deleted'
       )
+    })
+
+    it('displays Local and Account datetime in correct timezones', async () => {
+      // @ts-expect-error the only test that requires TIMEZONE
+      window.ENV = {...window.ENV, TIMEZONE: 'America/Denver'}
+
+      const {findAllByLabelText, findAllByText} = render(<TempEnrollAssign {...props} />)
+      const startTime = (await findAllByLabelText('Time'))[0]
+
+      fireEvent.input(startTime, {target: {value: '9:00 AM'}})
+      fireEvent.blur(startTime)
+
+      const localTime = (await findAllByText(/Local: /))[0]
+      const accTime = (await findAllByText(/Account: /))[0]
+
+      expect(localTime.textContent).toContain('9:00 AM')
+      expect(accTime.textContent).toContain('11:00 PM')
+
+      // @ts-expect-error
+      window.ENV = {
+        ACCOUNT_ID: '1',
+        CONTEXT_TIMEZONE: 'Asia/Brunei',
+        context_asset_string: 'account_1',
+      }
+    })
+
+    it('show error when date field is blank', async () => {
+      const screen = render(<TempEnrollAssign {...props} />)
+      const startDate = await screen.findByLabelText('Begins On')
+
+      fireEvent.input(startDate, {target: {value: ''}})
+      fireEvent.blur(startDate)
+
+      const errorMsg = (await screen.findAllByText('The chosen date and time is invalid.'))[0]
+      expect(errorMsg).toBeInTheDocument()
     })
 
     it('shows error when start date is after end date', async () => {
@@ -237,7 +291,9 @@ describe('TempEnrollAssign', () => {
     })
 
     it('hides roles the user does not have permission to enroll', async () => {
-      const {queryByText} = render(<TempEnrollAssign {...props} permissions={falsePermissions} />)
+      const {queryByText} = render(
+        <TempEnrollAssign {...props} rolePermissions={falsePermissions} />
+      )
       expect(queryByText('No roles available')).not.toBeInTheDocument()
     })
 
@@ -319,8 +375,8 @@ describe('TempEnrollAssign', () => {
           expect(datePart).toBe(expectedStartDateISO)
 
           // check time
-          const expectedUTCTime = localToUTCTime(expectedStartDateISO, expectedStartTime12Hr)
-          expect(timePart).toBe(expectedUTCTime)
+          const localTime = formatDateToLocalString(`${datePart} ${timeFragment}`).time
+          expect(localTime).toBe(expectedStartTime12Hr)
         })
       })
 
@@ -359,8 +415,8 @@ describe('TempEnrollAssign', () => {
           expect(datePart).toBe(expectedEndDateISO)
 
           // check time
-          const expectedUTCTime = localToUTCTime(expectedEndDateISO, expectedEndTime12Hr)
-          expect(timePart).toBe(expectedUTCTime) // 2 p.m.
+          const localTime = formatDateToLocalString(`${datePart} ${timeFragment}`).time
+          expect(localTime).toBe(expectedEndTime12Hr) // 2 p.m.
         })
       })
     })
@@ -387,23 +443,22 @@ describe('TempEnrollAssign', () => {
     it('should return enrollmentProps and userProps correctly when enrollmentType is RECIPIENT', () => {
       const {enrollmentProps, userProps} = getEnrollmentAndUserProps({
         enrollmentType: RECIPIENT,
-        enrollment: props.enrollment,
+        enrollments: props.enrollments,
         user: props.user,
       })
 
-      // Assert
-      expect(enrollmentProps).toEqual(props.user)
-      expect(userProps).toEqual(props.enrollment)
+      expect(enrollmentProps).toEqual([props.user])
+      expect(userProps).toEqual(props.enrollments[0])
     })
 
     it('should return enrollmentProps and userProps correctly when enrollmentType is PROVIDER', () => {
       const {enrollmentProps, userProps} = getEnrollmentAndUserProps({
         enrollmentType: PROVIDER,
-        enrollment: props.enrollment,
+        enrollments: props.enrollments,
         user: props.user,
       })
 
-      expect(enrollmentProps).toEqual(props.enrollment)
+      expect(enrollmentProps).toEqual(props.enrollments)
       expect(userProps).toEqual(props.user)
     })
   })
@@ -637,12 +692,12 @@ describe('TempEnrollAssign', () => {
 
     it('should call deleteEnrollment for matching criteria', async () => {
       const sectionIds = ['55', '220', '19']
-      const userId = '1'
+      const enrollmentUsers: User[] = [{id: '1', name: 'user1'}]
       const roleId = '20'
       const promises = deleteMultipleEnrollmentsByNoMatch(
         mockTempEnrollments,
         sectionIds,
-        userId,
+        enrollmentUsers,
         roleId
       )
       expect(promises).toHaveLength(1)
@@ -652,12 +707,12 @@ describe('TempEnrollAssign', () => {
 
     it('should not call deleteEnrollment for non-matching criteria', async () => {
       const sectionIds = ['7', '55', '220', '19']
-      const userId = '1'
+      const enrollmentUsers: User[] = [{id: '1', name: 'user1'}]
       const roleId = '20'
       const promises = deleteMultipleEnrollmentsByNoMatch(
         mockTempEnrollments,
         sectionIds,
-        userId,
+        enrollmentUsers,
         roleId
       )
       expect(promises).toHaveLength(0)

@@ -59,7 +59,7 @@ class ContentTag < ActiveRecord::Base
   belongs_to :context_module
   belongs_to :learning_outcome
   # This allows doing a has_many_through relationship on ContentTags for linked LearningOutcomes. (see LearningOutcomeContext)
-  belongs_to :learning_outcome_content, class_name: "LearningOutcome", foreign_key: :content_id
+  belongs_to :learning_outcome_content, class_name: "LearningOutcome", foreign_key: :content_id, inverse_of: false
   has_many :learning_outcome_results
   belongs_to :root_account, class_name: "Account"
 
@@ -210,7 +210,7 @@ class ContentTag < ActiveRecord::Base
   protected :default_values
 
   def context_code
-    read_attribute(:context_code) || "#{context_type.to_s.underscore}_#{context_id}" rescue nil
+    super || "#{context_type.to_s.underscore}_#{context_id}" rescue nil
   end
 
   def context_name
@@ -266,6 +266,10 @@ class ContentTag < ActiveRecord::Base
     else
       false
     end
+  end
+
+  def show_assign_to?
+    ["Assignment", "Quizzes::Quiz", "WikiPage"].include?(content_type) || (content_type == "DiscussionTopic" && (graded? || (!graded? && content&.group_category_id.blank?)))
   end
 
   def direct_shareable?
@@ -591,22 +595,27 @@ class ContentTag < ActiveRecord::Base
     differentiable_classes = ["Assignment", "DiscussionTopic", "Quiz", "Quizzes::Quiz", "WikiPage"]
     scope = for_non_differentiable_classes(course_ids, differentiable_classes)
 
-    cyoe_courses, non_cyoe_courses = Course.where(id: course_ids).partition { |course| ConditionalRelease::Service.enabled_in_context?(course) }
-    if non_cyoe_courses.any?
-      scope = scope.union(where(context_id: non_cyoe_courses, context_type: "Course", content_type: "WikiPage"))
+    if Account.site_admin.feature_enabled?(:selective_release_backend)
+      visible_page_ids = WikiPage.visible_to_students_in_course_with_da(user_ids, course_ids).select(:id)
+      scope = scope.union(where(content_id: visible_page_ids, context_id: course_ids, context_type: "Course", content_type: "WikiPage"))
+    else
+      cyoe_courses, non_cyoe_courses = Course.where(id: course_ids).partition { |course| ConditionalRelease::Service.enabled_in_context?(course) }
+      if non_cyoe_courses.any?
+        scope = scope.union(where(context_id: non_cyoe_courses, context_type: "Course", content_type: "WikiPage"))
+      end
+      if cyoe_courses.any?
+        scope = scope.union(
+          for_non_differentiable_wiki_pages(cyoe_courses.map(&:id)),
+          for_differentiable_wiki_pages(user_ids, cyoe_courses.map(&:id))
+        )
+      end
     end
-    if cyoe_courses.any?
-      scope = scope.union(
-        for_non_differentiable_wiki_pages(cyoe_courses.map(&:id)),
-        for_differentiable_wiki_pages(user_ids, cyoe_courses.map(&:id))
-      )
-    end
+
     scope.union(
       for_non_differentiable_discussions(course_ids)
         .merge(DiscussionTopic.visible_to_ungraded_discussion_student_visibilities(user_ids)),
       for_differentiable_assignments(user_ids, course_ids),
-      for_differentiable_discussions(user_ids, course_ids)
-        .merge(DiscussionTopic.visible_to_ungraded_discussion_student_visibilities(user_ids)),
+      for_differentiable_discussions(user_ids, course_ids),
       for_differentiable_quizzes(user_ids, course_ids)
     )
   }
@@ -625,6 +634,7 @@ class ContentTag < ActiveRecord::Base
   }
 
   scope :for_non_differentiable_wiki_pages, lambda { |course_ids|
+    # remove with selective_release_backend
     joins("JOIN #{WikiPage.quoted_table_name} as wp ON wp.id = content_tags.content_id")
       .where("content_tags.context_id IN (?)
              AND content_tags.context_type = 'Course'
@@ -696,6 +706,7 @@ class ContentTag < ActiveRecord::Base
   }
 
   scope :for_differentiable_wiki_pages, lambda { |user_ids, course_ids|
+    # remove with selective_release_backend
     if Account.site_admin.feature_enabled?(:selective_release_backend) # TODO: I feel like this could be better
       unfiltered_page_ids = where(content_type: "WikiPage").pluck(:content_id)
       assignment_ids = WikiPage.where(id: unfiltered_page_ids).where.not(assignment_id: nil).pluck(:assignment_id)
@@ -756,7 +767,7 @@ class ContentTag < ActiveRecord::Base
   # filtered by context during migrate_content_to_1_3
   # @see Lti::Migratable
   def self.directly_associated_items(tool_id)
-    ContentTag.nondeleted.where(tag_type: :context_module, content_id: tool_id)
+    ContentTag.nondeleted.where(tag_type: :context_module, content_type: ContextExternalTool, content_id: tool_id)
   end
 
   # filtered by context during migrate_content_to_1_3
@@ -903,7 +914,12 @@ class ContentTag < ActiveRecord::Base
       SubmissionLifecycleManager.recompute(content, update_grades: true)
     elsif content.assignment
       content.assignment.clear_cache_key(:availability)
-      SubmissionLifecycleManager.recompute(content.assignment, update_grades: true)
+      create_sub_assignment_submissions = false
+      if content.assignment.checkpoints_parent?
+        create_sub_assignment_submissions = true
+      end
+
+      SubmissionLifecycleManager.recompute(content.assignment, update_grades: true, create_sub_assignment_submissions:)
     end
   end
 

@@ -41,6 +41,8 @@ type CommonMigratorControlsProps = {
   onSubmit: onSubmitMigrationFormCallback
   onCancel: () => void
   fileUploadProgress: number | null
+  isSubmitting: boolean
+  setIsQuestionBankDisabled?: (isDisabled: boolean) => void
 }
 
 const generateNewQuizzesLabel = () => (
@@ -101,7 +103,8 @@ export const CommonMigratorControls = ({
   canImportBPSettings = false,
   onSubmit,
   onCancel,
-  fileUploadProgress,
+  isSubmitting,
+  setIsQuestionBankDisabled,
 }: CommonMigratorControlsProps) => {
   const [selectiveImport, setSelectiveImport] = useState<null | boolean>(null)
   const [importBPSettings, setImportBPSettings] = useState<null | boolean>(null)
@@ -123,6 +126,15 @@ export const CommonMigratorControls = ({
     },
   })
   const [contentError, setContentError] = useState<boolean>(false)
+
+  const onCanImportAsNewQuizzesChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const target = e.target as HTMLInputElement
+      setImportAsNewQuizzes(target.checked)
+      setIsQuestionBankDisabled?.(target.checked)
+    },
+    [setImportAsNewQuizzes, setIsQuestionBankDisabled]
+  )
 
   const handleSubmit = useCallback(() => {
     const data: any = {settings: {}}
@@ -151,55 +163,66 @@ export const CommonMigratorControls = ({
     onSubmit,
   ])
 
-  const options = useMemo(() => {
-    const result = []
-    canImportAsNewQuizzes &&
-      result.push(
-        <Checkbox
-          key="existing_quizzes_as_new_quizzes"
-          name="existing_quizzes_as_new_quizzes"
-          value="existing_quizzes_as_new_quizzes"
-          label={generateNewQuizzesLabel()}
-          disabled={!ENV.QUIZZES_NEXT_ENABLED}
-          defaultChecked={!!ENV.NEW_QUIZZES_MIGRATION_DEFAULT}
-          onChange={(e: React.SyntheticEvent<Element, Event>) => {
-            const target = e.target as HTMLInputElement
-            setImportAsNewQuizzes(target.checked)
-          }}
-        />
-      )
-    canOverwriteAssessmentContent &&
-      result.push(
-        <Checkbox
-          key="overwrite_assessment_content"
-          name="overwrite_assessment_content"
-          value="overwrite_assessment_content"
-          label={generateOverwriteLabel()}
-          onChange={(e: React.SyntheticEvent<Element, Event>) => {
-            const target = e.target as HTMLInputElement
-            setOverwriteAssessmentContent(target.checked)
-          }}
-        />
-      )
-    canAdjustDates &&
-      result.push(
-        <Checkbox
-          key="adjust_dates[enabled]"
-          name="adjust_dates[enabled]"
-          value="adjust_dates[enabled]"
-          label={I18n.t('Adjust events and due dates')}
-          onChange={(e: React.SyntheticEvent<Element, Event>) => {
-            const target = e.target as HTMLInputElement
-            setShowAdjustDates(target.checked)
+  const options = [
+    ...(canImportAsNewQuizzes
+      ? [
+          <Checkbox
+            key="existing_quizzes_as_new_quizzes"
+            name="existing_quizzes_as_new_quizzes"
+            value="existing_quizzes_as_new_quizzes"
+            label={generateNewQuizzesLabel()}
+            disabled={!ENV.QUIZZES_NEXT_ENABLED || isSubmitting}
+            defaultChecked={!!ENV.NEW_QUIZZES_MIGRATION_DEFAULT}
+            onChange={onCanImportAsNewQuizzesChange}
+          />,
+        ]
+      : []),
+    ...(canOverwriteAssessmentContent
+      ? [
+          <Checkbox
+            key="overwrite_assessment_content"
+            name="overwrite_assessment_content"
+            value="overwrite_assessment_content"
+            disabled={isSubmitting}
+            label={generateOverwriteLabel()}
+            onChange={e => setOverwriteAssessmentContent(e.target.checked)}
+          />,
+        ]
+      : []),
+    ...(canAdjustDates
+      ? [
+          <Checkbox
+            key="adjust_dates[enabled]"
+            name="adjust_dates[enabled]"
+            value="adjust_dates[enabled]"
+            disabled={isSubmitting}
+            label={I18n.t('Adjust events and due dates')}
+            onChange={({target}) => {
+              setShowAdjustDates(target.checked)
+              const tmp = JSON.parse(JSON.stringify(dateAdjustments))
+              tmp.adjust_dates.enabled = target.checked ? 1 : 0
+              setDateAdjustments(tmp)
+            }}
+          />,
+        ]
+      : []),
+  ]
 
-            const tmp = JSON.parse(JSON.stringify(dateAdjustments))
-            tmp.adjust_dates.enabled = target.checked ? 1 : 0
-            setDateAdjustments(tmp)
-          }}
-        />
-      )
-    return result
-  }, [canImportAsNewQuizzes, canOverwriteAssessmentContent, canAdjustDates, dateAdjustments])
+  const allContentText = (
+    <>
+      <Text size="medium" color="primary">
+        {I18n.t('All content')}
+      </Text>
+      <br />
+      <View as="div" margin="x-small 0 0 0">
+        <Text size="small" color="primary">
+          {I18n.t(
+            'Note the following content types will be imported: Course Settings, Syllabus Body, Modules, Assignments, Quizzes, Question Banks, Discussion Topics, Pages, Announcements, Rubrics, Files, and Calendar Events.'
+          )}
+        </Text>
+      </View>
+    </>
+  )
 
   return (
     <>
@@ -213,12 +236,13 @@ export const CommonMigratorControls = ({
             <RadioInput
               name="selective_import"
               value="non_selective"
-              label={I18n.t('All content')}
+              label={allContentText}
               onChange={(e: React.SyntheticEvent<Element, Event>) => {
                 const target = e.target as HTMLInputElement
                 setSelectiveImport(!target.checked)
               }}
               checked={selectiveImport === true}
+              disabled={isSubmitting}
             />
             <>
               {selectiveImport === false && canImportBPSettings ? (
@@ -226,6 +250,7 @@ export const CommonMigratorControls = ({
                   <Checkbox
                     label={I18n.t('Import Blueprint Course settings')}
                     value="medium"
+                    disabled={isSubmitting}
                     onChange={(e: React.SyntheticEvent<Element, Event>) => {
                       const target = e.target as HTMLInputElement
                       setImportBPSettings(target.checked)
@@ -243,6 +268,7 @@ export const CommonMigratorControls = ({
                 setSelectiveImport(target.checked)
               }}
               checked={selectiveImport === false}
+              disabled={isSubmitting}
             />
           </RadioInputGroup>
           {contentError && (
@@ -255,28 +281,36 @@ export const CommonMigratorControls = ({
 
       {options.length > 0 && (
         <View as="div" margin="medium none none none">
-          <CheckboxGroup name={I18n.t('Options')} layout="stacked" description={I18n.t('Options')}>
+          <CheckboxGroup
+            disabled={isSubmitting}
+            name={I18n.t('Options')}
+            layout="stacked"
+            description={I18n.t('Options')}
+          >
             {options}
           </CheckboxGroup>
           {showAdjustDates ? (
             <DateAdjustments
               dateAdjustments={dateAdjustments}
               setDateAdjustments={setDateAdjustments}
+              disabled={isSubmitting}
             />
           ) : null}
         </View>
       )}
 
       <View as="div" margin="medium none none none">
-        <Button onClick={onCancel}>{I18n.t('Cancel')}</Button>
+        <Button disabled={isSubmitting} onClick={onCancel}>
+          {I18n.t('Cancel')}
+        </Button>
         <Button
-          disabled={!!(fileUploadProgress && fileUploadProgress < 100)}
+          disabled={isSubmitting}
           data-testid="submitMigration"
           onClick={handleSubmit}
           margin="small"
           color="primary"
         >
-          {fileUploadProgress && fileUploadProgress < 100 ? (
+          {isSubmitting ? (
             <>
               <Spinner size="x-small" renderTitle={I18n.t('Adding')} /> &nbsp;
               {I18n.t('Adding...')}

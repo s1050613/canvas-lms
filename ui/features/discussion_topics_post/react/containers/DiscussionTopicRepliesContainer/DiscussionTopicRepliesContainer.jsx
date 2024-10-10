@@ -96,12 +96,6 @@ export const DiscussionTopicRepliesContainer = props => {
             discussionEntryIds: entryIds,
             read: true,
           },
-          optimisticResponse: {
-            updateDiscussionEntriesReadState: {
-              discussionEntries: entries,
-              __typename: 'UpdateDiscussionEntriesReadStatePayload',
-            },
-          },
         })
       }, AUTO_MARK_AS_READ_DELAY)
 
@@ -128,7 +122,7 @@ export const DiscussionTopicRepliesContainer = props => {
   }
 
   return (
-    <View as="div" data-testid="discussion-root-entry-container">
+    <View as="div" padding="mediumSmall" data-testid="discussion-root-entry-container">
       {searchTerm && <SearchResultsCount resultsFound={props.discussionTopic.searchEntryCount} />}
       {props.discussionTopic.discussionEntriesConnection.nodes.map(thread => {
         return (
@@ -142,6 +136,7 @@ export const DiscussionTopicRepliesContainer = props => {
             highlightEntryId={props.highlightEntryId}
             setHighlightEntryId={props.setHighlightEntryId}
             userSplitScreenPreference={props.userSplitScreenPreference}
+            refetchDiscussionEntries={props.refetchDiscussionEntries}
           />
         )
       })}
@@ -167,6 +162,7 @@ DiscussionTopicRepliesContainer.propTypes = {
   isSearchResults: PropTypes.bool,
   setHighlightEntryId: PropTypes.func,
   userSplitScreenPreference: PropTypes.bool,
+  refetchDiscussionEntries: PropTypes.func,
 }
 
 export default DiscussionTopicRepliesContainer

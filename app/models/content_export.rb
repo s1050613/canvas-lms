@@ -48,6 +48,7 @@ class ContentExport < ActiveRecord::Base
   COMMON_CARTRIDGE = "common_cartridge"
   COURSE_COPY = "course_copy"
   MASTER_COURSE_COPY = "master_course_copy"
+  COURSE_TEMPLATE_COPY = "course_template_copy"
   QTI = "qti"
   USER_DATA = "user_data"
   ZIP = "zip"
@@ -393,11 +394,15 @@ class ContentExport < ActiveRecord::Base
   end
 
   def for_course_copy?
-    export_type == COURSE_COPY || export_type == MASTER_COURSE_COPY
+    export_type == COURSE_COPY || export_type == MASTER_COURSE_COPY || export_type == COURSE_TEMPLATE_COPY
   end
 
   def for_master_migration?
     export_type == MASTER_COURSE_COPY
+  end
+
+  def for_course_template?
+    export_type == COURSE_TEMPLATE_COPY
   end
 
   def master_migration
@@ -442,6 +447,14 @@ class ContentExport < ActiveRecord::Base
     else
       create_key(obj)
     end
+  end
+
+  def selected_new_quizzes=(copy_settings)
+    settings[:selected_new_quizzes] = copy_settings
+  end
+
+  def selected_new_quizzes
+    settings[:selected_new_quizzes]
   end
 
   def create_key(obj, prepend = "")
@@ -566,7 +579,7 @@ class ContentExport < ActiveRecord::Base
   end
 
   def settings
-    read_or_initialize_attribute(:settings, {}.with_indifferent_access)
+    self["settings"] ||= {}.with_indifferent_access
   end
 
   def fast_update_progress(val)
@@ -602,14 +615,33 @@ class ContentExport < ActiveRecord::Base
     end
   end
 
-  def set_contains_new_quizzes_settings
-    settings[:contains_new_quizzes] = contains_new_quizzes?
+  def prepare_new_quizzes_export(selected_assignments = nil)
+    unless new_quizzes_common_cartridge_enabled?
+      settings[:contains_new_quizzes] = false
+      return
+    end
+
+    nq_assignments = course.assignments.active.type_quiz_lti.where.not(workflow_state: "failed_to_duplicate")
+
+    is_selective_export = !selected_assignments.nil?
+    if is_selective_export
+      selected_new_quizzes_ids = nq_assignments.where(id: selected_assignments).map { |id| Shard.global_id_for(id) }
+
+      unless selected_new_quizzes_ids.blank?
+        self.selected_new_quizzes = selected_new_quizzes_ids
+      end
+    end
+
+    settings[:contains_new_quizzes] = is_selective_export ? selected_new_quizzes.present? : nq_assignments.count.positive?
+    mark_waiting_for_external_tool if contains_new_quizzes_setting?
   end
 
   def contains_new_quizzes?
-    return false unless new_quizzes_common_cartridge_enabled?
+    new_quizzes_common_cartridge_enabled? && contains_new_quizzes_setting?
+  end
 
-    context.assignments.active.type_quiz_lti.count.positive?
+  def contains_new_quizzes_setting?
+    settings[:contains_new_quizzes] == true
   end
 
   def include_new_quizzes_in_export?

@@ -24,6 +24,8 @@ import DirectShareCourseTray from '@canvas/direct-sharing/react/components/Direc
 import DirectShareUserModal from '@canvas/direct-sharing/react/components/DirectShareUserModal'
 import {scoreToPercentage} from '@canvas/grading/GradeCalculationHelper'
 import {useScope as useI18nScope} from '@canvas/i18n'
+import {ListViewCheckpoints} from '@canvas/list-view-checkpoints/react/ListViewCheckpoints'
+import {TeacherCheckpointsInfo} from '@canvas/list-view-checkpoints/react/TeacherCheckpointsInfo'
 import LockIconView from '@canvas/lock-icon'
 import * as MoveItem from '@canvas/move-item-tray'
 import PublishIconView from '@canvas/publish-icon-view'
@@ -42,7 +44,8 @@ import template from '../../jst/AssignmentListItem.handlebars'
 import scoreTemplate from '../../jst/_assignmentListItemScore.handlebars'
 import AssignmentKeyBindingsMixin from '../mixins/AssignmentKeyBindingsMixin'
 import CreateAssignmentView from './CreateAssignmentView'
-import ItemAssignToTray from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToTray'
+import ItemAssignToManager from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToManager'
+import {captureException} from '@sentry/browser'
 
 const I18n = useI18nScope('AssignmentListItemView')
 
@@ -323,7 +326,45 @@ export default AssignmentListItemView = (function () {
       }
 
       const {attributes = {}} = this.model
-      const {assessment_requests: assessmentRequests} = attributes
+      const {assessment_requests: assessmentRequests, checkpoints} = attributes
+
+      if (checkpoints && checkpoints.length && !this.canManage()) {
+        try {
+          const checkpointsElem =
+          this.$el.find(`#assignment_student_checkpoints_${this.model.id}`) ?? []
+          const mountPoint = checkpointsElem[0]
+
+          ReactDOM.render(
+            React.createElement(ListViewCheckpoints, {
+              assignment: attributes,
+            }),
+            mountPoint
+          )
+        } catch (error) {
+          const errorMessage = I18n.t('Checkpoints mount point element not found')
+          // eslint-disable-next-line no-console
+          console.error(errorMessage, error)
+          captureException(new Error(errorMessage), error)
+        }
+      } else if(checkpoints && checkpoints.length && this.canManage()) {
+        const checkpointsElem = this.$el.find(`#assignment_teacher_checkpoint_info_${this.model.id}`)
+        const mountPoint = checkpointsElem[0]
+        if (mountPoint) {
+          try {
+            ReactDOM.render(
+              React.createElement(TeacherCheckpointsInfo, {
+                assignment: this.model.attributes,
+              }),
+              mountPoint
+            )
+          } catch (error) {
+            const errorMessage = I18n.t('Checkpoints mount point element not found')
+            console.error(errorMessage, error)
+            captureException(new Error(errorMessage), error)
+          }
+        }
+      }
+
       if (assessmentRequests && assessmentRequests.length) {
         const peerReviewElem =
           this.$el.find(`#assignment_student_peer_review_${this.model.id}`) ?? []
@@ -392,10 +433,13 @@ export default AssignmentListItemView = (function () {
       data.canDuplicate = this.canDuplicate()
       data.canManageAssignTo = this.canManageAssignTo()
       data.is_locked = this.model.isRestrictedByMasterCourse()
+      data.isCheckpoint = this.model.get('checkpoints') && this.model.get('checkpoints').length > 0
       data.showAvailability =
+        !data.isCheckpoint &&
         !(this.model.inPacedCourse() && this.canManage()) &&
         (this.model.multipleDueDates() || !this.model.defaultDates().available())
       data.showDueDate =
+        !data.isCheckpoint &&
         !(this.model.inPacedCourse() && this.canManage()) &&
         (this.model.multipleDueDates() || this.model.singleSectionDueDate())
 
@@ -436,8 +480,18 @@ export default AssignmentListItemView = (function () {
             tool.base_url +
             `&discussion_topics[]=${__guard__(this.model.get('discussion_topic'), x => x.id)}`)
         })
+        data.item_assignment_type = "discussion_topic"
       } else {
-        data.menu_tools = ENV.assignment_menu_tools || []
+        const isNewQuizzes = this.model.isQuizLTIAssignment()
+        const isShareToCommons = (tool) => tool.canvas_icon_class === 'icon-commons'
+        const tools = ENV.assignment_menu_tools || []
+
+        if (!isNewQuizzes || ENV.FEATURES.commons_new_quizzes) {
+          data.menu_tools = tools
+        } else {
+          data.menu_tools = tools.filter(tool => !isShareToCommons(tool))
+        }
+
         data.menu_tools.forEach(tool => {
           return (tool.url = tool.base_url + `&assignments[]=${this.model.get('id')}`)
         })
@@ -548,11 +602,16 @@ export default AssignmentListItemView = (function () {
     }
 
     renderItemAssignToTray(open, returnFocusTo, itemProps) {
+      const mountPoint = document.getElementById('assign-to-mount-point')
+      if (mountPoint.hasChildNodes()) {
+        ReactDOM.unmountComponentAtNode(mountPoint)
+        mountPoint.innerHTML = ''
+      }
       ReactDOM.render(
-        <ItemAssignToTray
+        <ItemAssignToManager
           open={open}
           onClose={() => {
-            ReactDOM.unmountComponentAtNode(document.getElementById('assign-to-mount-point'))
+            ReactDOM.unmountComponentAtNode(mountPoint)
           }}
           onDismiss={() => {
             this.renderItemAssignToTray(false, returnFocusTo, itemProps)
@@ -561,9 +620,10 @@ export default AssignmentListItemView = (function () {
           itemType="assignment"
           locale={ENV.LOCALE || 'en'}
           timezone={ENV.TIMEZONE || 'UTC'}
+          isCheckpointed={itemProps.isCheckpoint}
           {...itemProps}
         />,
-        document.getElementById('assign-to-mount-point')
+        mountPoint
       )
     }
 
@@ -576,12 +636,14 @@ export default AssignmentListItemView = (function () {
       const itemContentId = e.target.getAttribute('data-assignment-id')
       const pointsPossible = this.model.get('points_possible')
       const iconType = e.target.getAttribute('data-assignment-type')
+      const isCheckpoint = e.target.getAttribute('data-assignment-has-checkpoint')
       this.renderItemAssignToTray(true, returnFocusTo, {
         courseId,
         itemName,
         itemContentId,
         pointsPossible,
         iconType,
+        isCheckpoint,
       })
     }
 
@@ -806,14 +868,15 @@ export default AssignmentListItemView = (function () {
           if (json.pointsPossible === 0 && json.submission.score < 0) {
             grade = json.submission.score
           } else if (json.pointsPossible === 0 && json.submission.score > 0) {
-            grade = scoreToGrade(100, ENV.grading_scheme, ENV.points_based)
+            grade = scoreToGrade(100, ENV.grading_scheme, ENV.points_based, ENV.scaling_factor)
           } else if (json.pointsPossible === 0 && json.submission.score === 0) {
             grade = 'complete'
           } else {
             grade = scoreToGrade(
               scoreToPercentage(json.submission.score, json.pointsPossible),
               ENV.grading_scheme,
-              ENV.points_based
+              ENV.points_based,
+              ENV.scaling_factor
             )
           }
         }

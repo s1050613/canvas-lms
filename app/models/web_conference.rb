@@ -54,7 +54,7 @@ class WebConference < ActiveRecord::Base
 
   serialize :settings
   def settings
-    read_or_initialize_attribute(:settings, {})
+    self["settings"] ||= {}
   end
 
   # whether they replace the whole hash or just update some values, make sure
@@ -287,7 +287,7 @@ class WebConference < ActiveRecord::Base
   end
 
   def context_code
-    read_attribute(:context_code) || "#{context_type.underscore}_#{context_id}" rescue nil
+    super || "#{context_type.underscore}_#{context_id}" rescue nil
   end
 
   def infer_conference_settings; end
@@ -299,9 +299,8 @@ class WebConference < ActiveRecord::Base
                   WebConference.conference_types(context).detect { |t| t[:conference_type] == val }
                 end
     if conf_type
-      write_attribute(:conference_type, conf_type[:conference_type])
-      write_attribute(:type, conf_type[:class_name])
-      conf_type[:conference_type]
+      self.type = conf_type[:class_name]
+      super(conf_type[:conference_type])
     else
       nil
     end
@@ -439,10 +438,10 @@ class WebConference < ActiveRecord::Base
     []
   end
 
-  def craft_url(user = nil, session = nil, return_to = "http://www.instructure.com")
+  def craft_url(user = nil, session = nil, return_to = "https://www.instructure.com")
     user ||= self.user
     (initiate_conference and touch) or return nil
-    if user == self.user || grants_right?(user, session, :initiate)
+    if user.present? && (user == self.user || grants_right?(user, session, :initiate))
       admin_join_url(user, return_to)
     else
       participant_join_url(user, return_to)

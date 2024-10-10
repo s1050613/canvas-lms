@@ -692,7 +692,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
     const ref1 = this.assignments
     for (const assignmentId in ref1) {
       const a = ref1[assignmentId]
-      if (a.only_visible_to_overrides) {
+      if (!a.visible_to_everyone) {
         const hiddenStudentIds = hiddenStudentIdsForAssignment(studentIds, a)
         for (const studentId of hiddenStudentIds) {
           studentsWithHiddenAssignments.push(studentId)
@@ -959,7 +959,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       const allStudentsById: StudentMap = {...this.students, ...this.studentViewStudents}
 
       const assignment = this.getAssignment(assignmentId)
-      assignmentStudentVisibility[assignmentId] = assignment.only_visible_to_overrides
+      assignmentStudentVisibility[assignmentId] = !assignment.visible_to_everyone
         ? (pick(allStudentsById, ...assignment.assignment_visibility) as StudentMap)
         : allStudentsById
     }
@@ -3570,6 +3570,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
     })
     const isGroupWeightZero =
       this.assignmentGroups[assignment.assignment_group_id].group_weight === 0
+    const gradingScheme = this.getAssignmentGradingScheme(assignmentId)
     return {
       assignment: camelizeProperties(assignment),
       colors: this.state.gridColors,
@@ -3579,8 +3580,9 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       gradingDisabled: Boolean(
         !!(submissionState != null ? submissionState.locked : undefined) || student.isConcluded
       ),
-      gradingScheme: this.getAssignmentGradingScheme(assignmentId)?.data || null,
-      pointsBasedGradingScheme: this.getAssignmentGradingScheme(assignmentId)?.pointsBased || false,
+      gradingScheme: gradingScheme?.data || null,
+      pointsBasedGradingScheme: gradingScheme?.pointsBased || false,
+      scalingFactor: gradingScheme?.scalingFactor || null,
       isFirstAssignment,
       isInOtherGradingPeriod: !!(submissionState != null
         ? submissionState.inOtherGradingPeriod
@@ -4707,6 +4709,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       grade: submission.entered_grade,
       score: submission.entered_score,
       valid: true,
+      subAssignmentTag: submissionData?.subAssignmentTag,
     }
     return this.apiUpdateSubmission(submissionData, gradeInfo)
   }
@@ -5189,7 +5192,6 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
         <Portal node={this.props.gradebookMenuNode}>
           <GradebookMenu
             courseUrl={this.options.context_url}
-            enhancedIndividualGradebookEnabled={this.options.individual_gradebook_enhancements}
             learningMasteryEnabled={this.options.outcome_gradebook_enabled}
             variant="DefaultGradebook"
           />

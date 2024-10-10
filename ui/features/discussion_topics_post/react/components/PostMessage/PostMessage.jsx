@@ -60,19 +60,28 @@ export function PostMessage({...props}) {
 
   // Shouldn't fire if not feature flagged.
   useEffect(() => {
-    // This is another change
     if (translateTargetLanguage == null) {
+      // Since the SearchSpan depends on translatedMessage, we want to make sure that it gets set to the latest props.message
+      // Value if it changes, even if no translation occurs.
+      setTranslatedMessage(props.message)
       return
     }
 
-    getTranslation(translatedTitle, translateTargetLanguage, setTranslatedTitle, setIsTranslating)
-    getTranslation(
-      translatedMessage,
-      translateTargetLanguage,
-      setTranslatedMessage,
-      setIsTranslating
-    )
-  }, [translateTargetLanguage])
+    const translations = [
+      getTranslation(translatedTitle, translateTargetLanguage, setTranslatedTitle),
+      getTranslation(
+        translatedMessage,
+        translateTargetLanguage,
+        setTranslatedMessage
+      )
+    ]
+
+    // Begin translating, clear spinner when done.
+    setIsTranslating(true);
+    Promise.all(translations)
+           .then(() => setIsTranslating(false));
+
+  }, [translateTargetLanguage, props.message])
 
   return (
     <Responsive
@@ -80,32 +89,34 @@ export function PostMessage({...props}) {
       query={responsiveQuerySizes({mobile: true, desktop: true})}
       props={{
         mobile: {
-          titleMargin: '0',
-          titleTextSize: 'small',
+          titleMargin: 'small 0',
+          titleDisplay: 'block',
+          titleTextSize: 'large',
           titleTextWeight: 'bold',
-          messageTextSize: 'fontSizeXSmall',
           messageLeftPadding: undefined,
+          isMobile: true,
         },
         desktop: {
-          titleMargin: props.threadMode ? '0' : '0 0 small 0',
+          titleMargin: '0',
+          titleDisplay: 'inline',
           titleTextSize: props.threadMode ? 'medium' : 'x-large',
           titleTextWeight: props.threadMode ? 'bold' : 'normal',
-          messageTextSize: props.threadMode ? 'fontSizeSmall' : 'fontSizeMedium',
           messageLeftPadding:
             props.discussionEntry && props.discussionEntry.depth === 1 && !props.threadMode
-              ? theme.variables.spacing.xxSmall
+              ? theme.spacing.xxSmall
               : undefined,
+          isMobile: false,
         },
       }}
       render={responsiveProps => (
         <View>
           {props.title ? (
-            <View
-              as={heading}
-              margin={responsiveProps.titleMargin}
-              padding={props.isTopic ? 'small 0 0 0' : '0'}
-            >
-              <Text size={responsiveProps.titleTextSize} weight={responsiveProps.titleTextWeight}>
+            <View margin={responsiveProps.titleMargin} display={responsiveProps.titleDisplay}>
+              <Text
+                size={responsiveProps.titleTextSize}
+                data-testid="message_title"
+                weight="bold"
+              >
                 <AccessibleContent
                   alt={I18n.t('Discussion Topic: %{title}', {title: translatedTitle})}
                 >
@@ -147,6 +158,7 @@ export function PostMessage({...props}) {
                 onCancel={props.onCancel}
                 value={translatedMessage}
                 attachment={props.attachment}
+                quotedEntry={props.discussionEntry.quotedEntry}
                 onSubmit={props.onSave}
                 isEdit={true}
                 isAnnouncement={props.discussionTopic?.isAnnouncement}
@@ -155,9 +167,9 @@ export function PostMessage({...props}) {
           ) : (
             <>
               <div
+                className={'userMessage' + (responsiveProps.isMobile ? ' mobile' : '')}
                 style={{
                   marginLeft: responsiveProps.messageLeftPadding,
-                  fontSize: theme.variables.typography[responsiveProps.messageTextSize],
                 }}
               >
                 <SearchSpan

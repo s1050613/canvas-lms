@@ -75,13 +75,25 @@ RSpec.describe Lti::Registration do
         ims_registration # instantiate before test runs
       end
 
-      it "returns the registration_configuration" do
-        expect(subject).to eq(ims_registration.registration_configuration)
+      it "returns the internal_lti_configuration" do
+        expect(subject).to eq(ims_registration.internal_lti_configuration)
       end
     end
 
-    context "when ims_registration is not present" do
-      # this will change when manual 1.3 and 1.1 registrations are supported
+    context "when tool_configuration is present" do
+      let!(:tool_configuration) do
+        dk = dev_key_model_1_3
+        dk.tool_configuration.update!(lti_registration: registration)
+        dk.tool_configuration
+      end
+
+      it "returns the manual_configuration" do
+        expect(subject).to eq(tool_configuration.settings)
+      end
+    end
+
+    context "when neither ims_registration nor manual_configuration is present" do
+      # this will change when and 1.1 registrations are supported
       it "is empty" do
         expect(subject).to eq({})
       end
@@ -94,18 +106,26 @@ RSpec.describe Lti::Registration do
     let(:registration) { lti_registration_model }
 
     context "when ims_registration is present" do
-      let(:ims_registration) { lti_ims_registration_model(lti_registration: registration) }
-
-      before do
-        ims_registration # instantiate before test runs
-      end
+      let!(:ims_registration) { lti_ims_registration_model(lti_registration: registration) }
 
       it "returns the logo_uri" do
         expect(subject).to eq(ims_registration.logo_uri)
       end
     end
 
-    context "when ims_registration is not present" do
+    context "when a tool configuration is present" do
+      let!(:tool_configuration) do
+        dk = dev_key_model_1_3
+        dk.tool_configuration.update!(lti_registration: registration)
+        dk.tool_configuration
+      end
+
+      it "returns the logo_uri" do
+        expect(subject).to eq(tool_configuration.settings["extensions"].first["settings"]["icon_url"])
+      end
+    end
+
+    context "when neither ims_registration nor manual_configuration is present" do
       it "is nil" do
         expect(subject).to be_nil
       end
@@ -129,6 +149,16 @@ RSpec.describe Lti::Registration do
       end
     end
 
+    context "when account is not root account" do
+      subject { registration.account_binding_for(subaccount) }
+
+      let(:subaccount) { account_model(parent_account: account) }
+
+      it "returns the binding for the nearest root account" do
+        expect(subject).to eq(account_binding)
+      end
+    end
+
     context "when account is the registration's account" do
       it "returns the correct account_binding" do
         expect(subject).to eq(account_binding)
@@ -141,6 +171,127 @@ RSpec.describe Lti::Registration do
       it "returns nil" do
         expect(subject).to be_nil
       end
+    end
+
+    context "with site admin registration" do
+      specs_require_sharding
+
+      let(:registration) { Shard.default.activate { lti_registration_model(account: Account.site_admin) } }
+      let(:site_admin_binding) { Shard.default.activate { lti_registration_account_binding_model(registration:, workflow_state: "on", account: Account.site_admin) } }
+      let(:account) { @shard2.activate { account_model } }
+
+      before do
+        site_admin_binding # instantiate before test runs
+      end
+
+      it "prefers site admin binding" do
+        expect(@shard2.activate { subject }).to eq(site_admin_binding)
+      end
+
+      context "when site admin binding is allow" do
+        before do
+          site_admin_binding.update!(workflow_state: "allow")
+        end
+
+        it "ignores site admin binding" do
+          expect(@shard2.activate { subject }).to be_nil
+        end
+      end
+    end
+  end
+
+  describe ".preload_account_bindings" do
+    subject { Lti::Registration.preload_account_bindings(registrations, account) }
+
+    let(:account) { account_model }
+    let(:registrations) { [] }
+
+    context "when account is nil" do
+      let(:account) { nil }
+
+      it "returns nil" do
+        expect(subject).to be_nil
+      end
+    end
+
+    context "when account is not root account" do
+      let(:root_account) { account_model }
+      let(:account) { account_model(parent_account: root_account) }
+
+      let(:registrations) { [lti_registration_model(account: root_account, bound: true)] }
+
+      it "preloads bindings for nearest root account" do
+        subject
+        expect(registrations).to all(have_attributes(account_binding: be_present))
+      end
+    end
+
+    context "with account-level registrations" do
+      let(:registrations) do
+        [
+          lti_registration_model(account:, bound: true, name: "first"),
+          lti_registration_model(account:, bound: true, name: "second")
+        ]
+      end
+
+      it "preloads account_binding on registrations" do
+        subject
+        expect(registrations).to all(have_attributes(account_binding: be_present))
+      end
+    end
+
+    context "with site admin registrations" do
+      let(:registrations) do
+        [
+          lti_registration_model(account:, bound: true, name: "first"),
+          lti_registration_model(account: Account.site_admin, bound: true, name: "second")
+        ]
+      end
+
+      it "preloads bindings from site admin registrations" do
+        subject
+        expect(registrations).to all(have_attributes(account_binding: be_present))
+      end
+
+      context "with sharding" do
+        specs_require_sharding
+
+        let(:account_registration) { @shard2.activate { lti_registration_model(account:, bound: true, name: "account") } }
+        let(:site_admin_registration) { Shard.default.activate { lti_registration_model(account: Account.site_admin, bound: true, name: "site admin") } }
+        let(:registrations) { [account_registration, site_admin_registration] }
+
+        it "preloads bindings from site admin registrations" do
+          @shard2.activate { subject }
+          expect(registrations).to all(have_attributes(account_binding: be_present))
+        end
+      end
+    end
+  end
+
+  describe ".associate_bindings" do
+    subject { Lti::Registration.send :associate_bindings, registrations, account_bindings }
+
+    let(:registrations) { [lti_registration_model] }
+    let(:account_bindings) { [lti_registration_account_binding_model(registration: registrations.first)] }
+
+    context "when binding has no matching registration" do
+      before do
+        account_bindings << lti_registration_account_binding_model
+      end
+
+      it "does not error" do
+        expect { subject }.not_to raise_error
+      end
+
+      it "associates bindings with registrations" do
+        subject
+        expect(registrations.first.account_binding).to eq(account_bindings.first)
+      end
+    end
+
+    it "associates bindings with registrations" do
+      subject
+      expect(registrations.first.account_binding).to eq(account_bindings.first)
     end
   end
 

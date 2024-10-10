@@ -261,9 +261,10 @@
 class RubricsApiController < ApplicationController
   include Api::V1::Rubric
   include Api::V1::RubricAssessment
+  include Api::V1::Attachment
 
   before_action :require_user
-  before_action :require_context
+  before_action :require_context, except: [:upload_template]
   before_action :validate_args
 
   VALID_ASSESSMENT_SCOPES = %w[assessments graded_assessments peer_assessments].freeze
@@ -317,6 +318,68 @@ class RubricsApiController < ApplicationController
     return unless authorized_action(@context, @current_user, :manage_rubrics)
 
     render json: used_locations_for(rubric)
+  end
+
+  # @API Creates a rubric using a CSV file
+  # Returns the rubric import object that was created
+  # @returns RubricImport
+  def upload
+    return unless authorized_action(@context, @current_user, :manage_rubrics)
+
+    file_obj = params[:attachment]
+    if file_obj.nil?
+      render json: { message: "No file attached" }, status: :bad_request
+    end
+
+    import = RubricImport.create_with_attachment(
+      @context, file_obj, @current_user
+    )
+
+    import.schedule
+
+    import_response = api_json(import, @current_user, session)
+    import_response[:user] = user_json(import.user, @current_user, session) if import.user
+    import_response[:attachment] = import.attachment.slice(:id, :filename, :size)
+    render json: import_response
+  end
+
+  # @API Templated file for importing a rubric
+  # @returns a CSV file in the format that can be imported
+  def upload_template
+    send_data(
+      RubricImport.template_file,
+      type: "text/csv",
+      filename: "import_rubric_template.csv",
+      disposition: "attachment"
+    )
+  end
+
+  # @API Get the status of a rubric import
+  # Can return the latest rubric import for an account or course, or a specific import by id
+  # @returns RubricImport
+  def upload_status
+    return unless authorized_action(@context, @current_user, :manage_rubrics)
+
+    begin
+      import = if params[:id] == "latest"
+                 RubricImport.find_latest_rubric_import(@context) or raise ActiveRecord::RecordNotFound
+               else
+                 RubricImport.find_specific_rubric_import(@context, params[:id]) or raise ActiveRecord::RecordNotFound
+               end
+      import_response = api_json(import, @current_user, session)
+      import_response[:user] = user_json(import.user, import.user, session) if import.user
+      import_response[:attachment] = import.attachment.slice(:id, :filename, :size) if import.attachment
+      render json: import_response
+    rescue ActiveRecord::RecordNotFound => e
+      render json: { message: e.message }, status: :not_found
+    end
+  end
+
+  def rubrics_by_import_id
+    return unless authorized_action(@context, @current_user, :manage_rubrics)
+
+    rubrics = Rubric.where(rubric_imports_id: params[:id], context: @context)
+    render json: rubrics_json(rubrics, @current_user, session)
   end
 
   private

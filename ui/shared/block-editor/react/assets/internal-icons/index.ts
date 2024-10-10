@@ -18,5 +18,7 @@
 
 import IconUndo from './undo'
 import IconRedo from './redo'
+import IconBackgroundColor from './background-color'
+import IconResize from './resize'
 
-export {IconUndo, IconRedo}
+export {IconUndo, IconRedo, IconBackgroundColor, IconResize}

@@ -23,25 +23,35 @@ import {Flex} from '@instructure/ui-flex'
 import {RatingButton} from './RatingButton'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
-import {escapeNewLineText} from './utils/rubricUtils'
+import {escapeNewLineText, rangingFrom} from './utils/rubricUtils'
+import {possibleString, possibleStringRange} from '../Points'
 
-const {licorice} = colors
+const {shamrock} = colors
 
 type HorizontalButtonDisplayProps = {
   isPreviewMode: boolean
   ratings: RubricRating[]
   ratingOrder: string
-  selectedRatingIndex?: number
-  onSelectRating: (index: number) => void
+  selectedRatingId?: string
+  onSelectRating: (rating: RubricRating) => void
+  criterionUseRange: boolean
 }
 export const HorizontalButtonDisplay = ({
   isPreviewMode,
   ratings,
   ratingOrder,
-  selectedRatingIndex = -1,
+  selectedRatingId,
   onSelectRating,
+  criterionUseRange,
 }: HorizontalButtonDisplayProps) => {
-  const selectedRating = ratings[selectedRatingIndex]
+  const selectedRating = ratings.find(rating => rating.id && rating.id === selectedRatingId)
+  const selectedRatingIndex = selectedRating ? ratings.indexOf(selectedRating) : -1
+  const min = criterionUseRange ? rangingFrom(ratings, selectedRatingIndex) : undefined
+
+  const getPossibleText = (points?: number) => {
+    return min != null ? possibleStringRange(min, points) : possibleString(points)
+  }
+
   return (
     <View as="div" data-testid="rubric-assessment-horizontal-display">
       {selectedRatingIndex >= 0 && (
@@ -53,7 +63,7 @@ export const HorizontalButtonDisplay = ({
           padding="xx-small"
           margin="0 xx-small small xx-small"
           data-testid={`rating-details-${selectedRating?.id}`}
-          themeOverride={{borderColorBrand: licorice, borderWidthMedium: '0.188rem'}}
+          themeOverride={{borderColorBrand: shamrock, borderWidthMedium: '0.188rem'}}
         >
           <View as="div">
             <Text size="x-small" weight="bold">
@@ -63,26 +73,36 @@ export const HorizontalButtonDisplay = ({
           <View as="div" display="block">
             <Text
               size="x-small"
+              themeOverride={{paragraphMargin: 0}}
               dangerouslySetInnerHTML={escapeNewLineText(selectedRating?.longDescription)}
             />
+          </View>
+          <View as="div" textAlign="end">
+            <Text size="x-small" weight="bold">
+              {getPossibleText(selectedRating?.points)}
+            </Text>
           </View>
         </View>
       )}
       <Flex direction={ratingOrder === 'ascending' ? 'row-reverse' : 'row'}>
         {ratings.map((rating, index) => {
           const buttonDisplay = (ratings.length - (index + 1)).toString()
+          const buttonAriaLabel = `${rating.description} ${
+            rating.longDescription
+          } ${getPossibleText(rating.points)}`
 
           return (
             <Flex.Item
               key={`${rating.id}-${buttonDisplay}`}
               data-testid={`rating-button-${rating.id}-${index}`}
+              aria-label={buttonAriaLabel}
             >
               <RatingButton
                 buttonDisplay={buttonDisplay}
                 isSelected={selectedRatingIndex === index}
                 isPreviewMode={isPreviewMode}
                 selectedArrowDirection="up"
-                onClick={() => onSelectRating(index)}
+                onClick={() => onSelectRating(rating)}
               />
             </Flex.Item>
           )

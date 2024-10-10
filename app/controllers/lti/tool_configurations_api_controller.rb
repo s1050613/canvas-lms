@@ -128,12 +128,13 @@ class Lti::ToolConfigurationsApiController < ApplicationController
   # @returns ToolConfiguration
   def update
     tool_config = developer_key.tool_configuration
-    tool_config.update!(
+    update_params = {
       settings: tool_configuration_params[:settings]&.to_unsafe_hash&.deep_merge(manual_custom_fields),
-      disabled_placements: tool_configuration_params[:disabled_placements],
-      privacy_level: tool_configuration_params[:privacy_level]
-    )
-    update_developer_key!(tool_config)
+      disabled_placements: tool_configuration_params[:disabled_placements]
+    }
+    update_params[:privacy_level] = tool_configuration_params[:privacy_level] unless tool_configuration_params[:privacy_level].nil?
+    tool_config.update!(update_params)
+    update_developer_key!(tool_config, params.dig(:developer_key, :redirect_uris))
 
     render json: Lti::ToolConfigurationSerializer.new(tool_config, include_warnings: true)
   end
@@ -177,7 +178,7 @@ class Lti::ToolConfigurationsApiController < ApplicationController
     }.stringify_keys
   end
 
-  def update_developer_key!(tool_config, redirect_uris = nil)
+  def update_developer_key!(tool_config, redirect_uris)
     developer_key = tool_config.developer_key
     developer_key.redirect_uris = redirect_uris unless redirect_uris.nil?
     developer_key.public_jwk = tool_config.settings["public_jwk"]
@@ -217,14 +218,14 @@ class Lti::ToolConfigurationsApiController < ApplicationController
   def developer_key_params
     return {} if params[:developer_key].blank?
 
-    params.require(:developer_key).permit(:name, :email, :notes, :redirect_uris, :test_cluster_only, :client_credentials_audience, scopes: [])
+    params.require(:developer_key).permit(:name, :email, :notes, :test_cluster_only, :client_credentials_audience, scopes: [])
   end
 
   def developer_key_redirect_uris
     # When settings_url is set, the redirect_uris parameter is not required.
     # We can infer the redirect_uris from the tool configuration (target_link_uri).
     if tool_configuration_params[:settings_url].present?
-      params.dig(:developer_key, :redirect_uris)
+      params.dig(:developer_key, :redirect_uris).presence
     else
       params.require(:developer_key).require(:redirect_uris)
     end
